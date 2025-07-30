@@ -33,3 +33,7 @@ eggs/
 *.egg
 
 *.DS_Store
+*.dex
+*.apk
+report.json
+quick_analysis_results.json

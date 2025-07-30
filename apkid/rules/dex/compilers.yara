@@ -124,6 +124,9 @@ private rule dx_map_type_order : internal
 
     // missing code and (fields | something else), likely small dex
     or (dex.map_list.map_item[6].type == 0x1003 and dex.map_list.map_item[7].type == 0x2006 and dex.map_list.map_item[8].type == 0x1001 and dex.map_list.map_item[9].type == 0x2002)
+
+    // DX with TYPE_ENCODED_ARRAY_ITEM at position 7 (newer DX versions)
+    or (dex.map_list.map_item[7].type == 0x2005 and dex.map_list.map_item[8].type == 0x1001 and dex.map_list.map_item[9].type == 0x2002)
 }
 
 private rule ambiguous_tiny_dex_map_type_order : internal
@@ -173,21 +176,32 @@ private rule r8_map_type_order : internal
     or (dex.map_list.map_item[6].type == 0x1001 and dex.map_list.map_item[7].type == 0x2002 and dex.map_list.map_item[8].type == 0x2004 and dex.map_list.map_item[9].type == 0x2000 and dex.map_list.map_item[10].type == 0x1003)
 }
 
+private rule d8_marker : internal
+{
+  meta:
+    description = "d8 hidden marker"
+
+  strings:
+    // D8 marker pattern - handle both immediate and distant compilation-mode
+    $d8_marker = { 7E 7E 44 38 7B 22 [0-100] 63 6F 6D 70 69 6C 61 74 69 6F 6E 2D 6D 6F 64 65 22 3A 22 }
+
+  condition:
+    $d8_marker
+}
+
 private rule r8_marker : internal
 {
   meta:
     description = "r8 hidden marker"
 
   strings:
-    // Example: ~~D8{"compilation-mode":"
-    // OR: ~~D8{"backend":"dex","compilation-mode":"
-    $marker = { 00 [1-2] 7E 7E ( 44 | 52 | 4C ) 38 7B 22 [0-16] 63 6F 6D 70 69 6C 61 74 69 6F 6E 2D 6D 6F 64 65 22 3A 22 }
+    // R8 marker pattern - handle both immediate and distant compilation-mode
+    $r8_marker = { 7E 7E 52 38 7B 22 [0-100] 63 6F 6D 70 69 6C 61 74 69 6F 6E 2D 6D 6F 64 65 22 3A 22 }
+    // L8 marker pattern - handle both immediate and distant compilation-mode
+    $l8_marker = { 7E 7E 4C 38 7B 22 [0-100] 63 6F 6D 70 69 6C 61 74 69 6F 6E 2D 6D 6F 64 65 22 3A 22 }
 
   condition:
-    /*
-     * Marker logic from: https://r8.googlesource.com/r8/+/refs/heads/master/src/main/java/com/android/tools/r8/dex/Marker.java#18
-     */
-    $marker
+    any of ($r8_marker, $l8_marker)
 }
 
 private rule dexmerge_map_type_order : internal
@@ -372,6 +386,27 @@ rule dx_merged : compiler
     and not r8_marker
 }
 
+rule d8 : compiler
+{
+  meta:
+    description = "d8"
+    url = "https://developer.android.com/studio/command-line/d8"
+
+  condition:
+    d8_marker
+    and (r8_map_type_order or ambiguous_tiny_dex_map_type_order or is_dex)
+}
+
+rule d8_merged : compiler
+{
+  meta:
+    description = "d8 (possible dexmerge)"
+
+  condition:
+    d8_marker
+    and (dexmerge_map_type_order or is_dex)
+}
+
 rule r8 : compiler
 {
   meta:
@@ -381,7 +416,8 @@ rule r8 : compiler
 
   condition:
     r8_marker
-    and (r8_map_type_order or ambiguous_tiny_dex_map_type_order)
+    and not d8_marker
+    and (r8_map_type_order or ambiguous_tiny_dex_map_type_order or is_dex)
 }
 
 rule r8_merged : compiler
@@ -392,7 +428,8 @@ rule r8_merged : compiler
 
   condition:
     r8_marker
-    and dexmerge_map_type_order
+    and not d8_marker
+    and (dexmerge_map_type_order or is_dex)
 }
 
 rule r8_no_marker : compiler
@@ -405,6 +442,7 @@ rule r8_no_marker : compiler
 
   condition:
     not r8_marker
+    and not d8_marker
     and r8_map_type_order
 }
 
@@ -427,6 +465,7 @@ rule unknown_compiler : compiler {
     and not (
       (dexlib1 or dexlib2 or dexlib2beta)
       or (dx or dx_merged)
+      or (d8 or d8_merged)
       or (r8 or r8_merged or r8_no_marker)
       or (jack_generic or jack_3x or jack_4x or jack_4_12 or jack_5x)
       or (dexmerge)
