@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 import subprocess
 import json
+import argparse
 from pathlib import Path
 import codecs
 
@@ -45,13 +46,32 @@ def safe_print(*args, **kwargs):
                 safe_args.append(str(arg).encode('ascii', errors='replace').decode('ascii'))
         print(*safe_args, **kwargs)
 
-def test_massive_obfuscation_with_percentage(input_file):
+def load_sdk_config_from_file(config_path):
+    """Load SDK configuration from temporary JSON file"""
+    if not config_path or not os.path.exists(config_path):
+        return None
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config
+    except Exception as e:
+        safe_print(f"Warning: Failed to load SDK config: {e}")
+        return None
+
+def test_massive_obfuscation_with_percentage(input_file, sdk_config=None):
     """
     Test massive obfuscation rule and show percentage of conditions met.
     Works with APK or DEX files.
+    
+    Args:
+        input_file: Path to APK or DEX file
+        sdk_config: Optional SDK configuration dict with custom patterns
     """
     
     safe_print(f"🔍 Testing massive obfuscation rule on: {input_file}")
+    if sdk_config:
+        safe_print(f"📦 Using custom SDK configuration for package: {sdk_config.get('package_name', 'unknown')}")
     safe_print(f"{'='*80}")
     
     # First, try APKiD scan using command-line interface (same as quick_apk_analyzer)
@@ -145,7 +165,7 @@ def test_massive_obfuscation_with_percentage(input_file):
         safe_print(f"{'='*60}")
         
         try:
-            result = analyze_single_dex_detailed(dex_path)
+            result = analyze_single_dex_detailed(dex_path, sdk_config)
             
             # Handle both old and new return formats for backward compatibility
             if len(result) == 4:
@@ -187,10 +207,14 @@ def test_massive_obfuscation_with_percentage(input_file):
     
     return overall_max_percentage, overall_should_trigger
 
-def analyze_single_dex_detailed(dex_file_path):
+def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
     """
     Perform detailed analysis of a single DEX file.
     Returns (percentage, should_trigger).
+    
+    Args:
+        dex_file_path: Path to DEX file
+        sdk_config: Optional SDK configuration dict
     """
     
     try:
@@ -275,41 +299,137 @@ def analyze_single_dex_detailed(dex_file_path):
     # Single method pattern - EXACT YARA bytes
     yara_patterns['single_method'] = len(re.findall(r'\x00\x01[a-z]\x00', data_str))
     
-    # Main class pattern: /\x00[\x02-\x7F]L[a-zA-Z0-9\$\/_-]+;\x00/ - EXACT YARA regex
-    yara_patterns['class_pattern'] = len(re.findall(r'\x00[\x02-\x7F]L[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    # Main class pattern: Enhanced to handle malformed classes (multiple L prefixes)
+    yara_patterns['class_pattern'] = len(re.findall(r'\x00[\x02-\x7F]L+[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     
-    # SDK exclusion patterns - EXACT YARA regex (synchronized with obfuscators.yara)
-    yara_patterns['google_class'] = len(re.findall(r'\x00[\x02-\x7F]Lcom/google/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['com_android_class'] = len(re.findall(r'\x00[\x02-\x7F]Lcom/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['android_class'] = len(re.findall(r'\x00[\x02-\x7F]Landroid/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['androidx_class'] = len(re.findall(r'\x00[\x02-\x7F]Landroidx/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['kotlin_class'] = len(re.findall(r'\x00[\x02-\x7F]Lkotlin/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['java_class'] = len(re.findall(r'\x00[\x02-\x7F]Ljava/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['kotlinx_class'] = len(re.findall(r'\x00[\x02-\x7F]Lkotlinx/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['dalvik_class'] = len(re.findall(r'\x00[\x02-\x7F]Ldalvik/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['org_class'] = len(re.findall(r'\x00[\x02-\x7F]Lorg/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    # SDK exclusion patterns - Enhanced to handle malformed classes (LLcom/google/, LLLcom/google/, etc.)
+    # Original pattern: \x00[\x02-\x7F]L... but malformed DEX can have multiple L's
+    yara_patterns['google_class'] = len(re.findall(r'\x00[\x02-\x7F]L+com/google/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['com_android_class'] = len(re.findall(r'\x00[\x02-\x7F]L+com/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['android_class'] = len(re.findall(r'\x00[\x02-\x7F]L+android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['androidx_class'] = len(re.findall(r'\x00[\x02-\x7F]L+androidx/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['kotlin_class'] = len(re.findall(r'\x00[\x02-\x7F]L+kotlin/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['java_class'] = len(re.findall(r'\x00[\x02-\x7F]L+java/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['kotlinx_class'] = len(re.findall(r'\x00[\x02-\x7F]L+kotlinx/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['dalvik_class'] = len(re.findall(r'\x00[\x02-\x7F]L+dalvik/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['org_class'] = len(re.findall(r'\x00[\x02-\x7F]L+org/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     # Additional exclusions synchronized with YARA obfuscators.yara massive_name_obfuscation rule
-    yara_patterns['retrofit2_class'] = len(re.findall(r'\x00[\x02-\x7F]Lretrofit2/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['ro_class'] = len(re.findall(r'\x00[\x02-\x7F]Lro/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['view_class'] = len(re.findall(r'\x00[\x02-\x7F]Lview/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['persist_class'] = len(re.findall(r'\x00[\x02-\x7F]Lpersist/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['sun_class'] = len(re.findall(r'\x00[\x02-\x7F]Lsun/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['guava_class'] = len(re.findall(r'\x00[\x02-\x7F]Lguava/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['vnd_android_class'] = len(re.findall(r'\x00[\x02-\x7F]Lvnd/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['schemas_android_class'] = len(re.findall(r'\x00[\x02-\x7F]Lschemas/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['in_collections_class'] = len(re.findall(r'\x00[\x02-\x7F]Lin/collections/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
-    yara_patterns['media_class'] = len(re.findall(r'\x00[\x02-\x7F]Lmedia/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['retrofit2_class'] = len(re.findall(r'\x00[\x02-\x7F]L+retrofit2/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['ro_class'] = len(re.findall(r'\x00[\x02-\x7F]L+ro/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['view_class'] = len(re.findall(r'\x00[\x02-\x7F]L+view/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['persist_class'] = len(re.findall(r'\x00[\x02-\x7F]L+persist/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['sun_class'] = len(re.findall(r'\x00[\x02-\x7F]L+sun/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['guava_class'] = len(re.findall(r'\x00[\x02-\x7F]L+guava/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['vnd_android_class'] = len(re.findall(r'\x00[\x02-\x7F]L+vnd/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['schemas_android_class'] = len(re.findall(r'\x00[\x02-\x7F]L+schemas/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['in_collections_class'] = len(re.findall(r'\x00[\x02-\x7F]L+in/collections/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['media_class'] = len(re.findall(r'\x00[\x02-\x7F]L+media/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    
+    # Enhanced YARA patterns for custom SDK detection (string table format)
+    custom_sdk_classes_yara = 0
+    if sdk_config:
+        custom_sdk_classes = sdk_config.get('sdk_classes', [])
+        
+        # Handle both old format (list of strings) and new format (list of objects)
+        if custom_sdk_classes and isinstance(custom_sdk_classes[0], dict):
+            # New format: [{"pattern": "com/fasterxml", "class_count": 8}, ...]
+            custom_patterns = [item['pattern'] for item in custom_sdk_classes]
+        else:
+            # Old format: ["com/fasterxml", "com/google/gson", ...]
+            custom_patterns = custom_sdk_classes
+        
+        # Add YARA pattern matching for custom SDK classes
+        for pattern in custom_patterns:
+            if pattern:
+                # Convert pattern to YARA string table format: \x00[\x02-\x7F]L+pattern/...;\x00
+                if pattern.startswith('L'):
+                    # Pattern already has L prefix: Lcom/fasterxml
+                    escaped_pattern = re.escape(pattern[1:])  # Remove L for escaping
+                    yara_pattern = f'\\x00[\\x02-\\x7F]L+{escaped_pattern}/[a-zA-Z0-9\\$\\/_-]+;\\x00'
+                else:
+                    # Pattern doesn't have L prefix: com/fasterxml
+                    escaped_pattern = re.escape(pattern)
+                    yara_pattern = f'\\x00[\\x02-\\x7F]L+{escaped_pattern}/[a-zA-Z0-9\\$\\/_-]+;\\x00'
+                
+                try:
+                    # Use raw string and handle multiple L prefixes like other patterns
+                    custom_matches = len(re.findall(yara_pattern.encode().decode('unicode_escape'), data_str))
+                    custom_sdk_classes_yara += custom_matches
+                    safe_print(f"   🔍 Custom SDK pattern '{pattern}': {custom_matches} matches")
+                except re.error as e:
+                    safe_print(f"   ⚠️ Invalid custom SDK pattern '{pattern}': {e}")
+                    continue
     
     # Legitimate short pattern - EXACT YARA regex
     yara_patterns['legitimate_short'] = len(re.findall(r'L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)/', data_str))
+    
+    # Enhanced YARA patterns for custom SDK detection (string table format)
+    custom_sdk_classes_yara = 0
+    custom_legitimate_yara = 0
+    
+    if sdk_config:
+        custom_sdk_classes = sdk_config.get('sdk_classes', [])
+        custom_legitimate_classes = sdk_config.get('legitimate_classes', [])
+        
+        # Handle both old format (list of strings) and new format (list of objects)
+        if custom_sdk_classes and isinstance(custom_sdk_classes[0], dict):
+            # New format: [{"pattern": "com/fasterxml", "class_count": 8}, ...]
+            custom_patterns = [item['pattern'] for item in custom_sdk_classes]
+        else:
+            # Old format: ["com/fasterxml", "com/google/gson", ...]
+            custom_patterns = custom_sdk_classes
+        
+        # Add YARA pattern matching for custom SDK classes
+        for pattern in custom_patterns:
+            if pattern:
+                # Convert pattern to YARA string table format: \x00[\x02-\x7F]L+pattern/...;\x00
+                if pattern.startswith('L'):
+                    # Pattern already has L prefix: Lcom/fasterxml
+                    escaped_pattern = re.escape(pattern[1:])  # Remove L for escaping
+                    yara_pattern = f'\\x00[\\x02-\\x7F]L+{escaped_pattern}/[a-zA-Z0-9\\$\\/_-]+;\\x00'
+                else:
+                    # Pattern doesn't have L prefix: com/fasterxml
+                    escaped_pattern = re.escape(pattern)
+                    yara_pattern = f'\\x00[\\x02-\\x7F]L+{escaped_pattern}/[a-zA-Z0-9\\$\\/_-]+;\\x00'
+                
+                try:
+                    # Use raw string and handle multiple L prefixes like other patterns
+                    custom_matches = len(re.findall(yara_pattern.encode().decode('unicode_escape'), data_str))
+                    custom_sdk_classes_yara += custom_matches
+                    safe_print(f"   🔍 Custom SDK pattern '{pattern}': {custom_matches} matches")
+                except re.error as e:
+                    safe_print(f"   ⚠️ Invalid custom SDK pattern '{pattern}': {e}")
+                    continue
+        
+        # Add YARA pattern matching for custom legitimate classes
+        for pattern in custom_legitimate_classes:
+            if pattern:
+                # Convert to YARA pattern format
+                if pattern.startswith('L'):
+                    escaped_pattern = re.escape(pattern[1:])  # Remove L for escaping
+                    yara_pattern = f'L{escaped_pattern}/'
+                else:
+                    escaped_pattern = re.escape(pattern)
+                    yara_pattern = f'L{escaped_pattern}/'
+                
+                try:
+                    custom_matches = len(re.findall(yara_pattern, data_str))
+                    custom_legitimate_yara += custom_matches
+                    safe_print(f"   🔍 Custom legitimate pattern '{pattern}': {custom_matches} matches")
+                except re.error as e:
+                    safe_print(f"   ⚠️ Invalid custom legitimate pattern '{pattern}': {e}")
+                    continue
+    
+    yara_patterns['custom_legitimate'] = custom_legitimate_yara
+    yara_patterns['custom_sdk_classes'] = custom_sdk_classes_yara
     
     # =============================
     # METHOD 2: MANUAL INSPECTION patterns (broader, no strict DEX formatting)
     # =============================
     manual_patterns = {}
     
-    # Find ALL class patterns (broader than DEX string table format)
-    all_classes = re.findall(r'L[a-zA-Z0-9\$_/]+;', data_str)
+    # Find ALL class patterns (enhanced to handle malformed classes with multiple L prefixes)
+    all_classes = re.findall(r'L+[a-zA-Z0-9\$_/]+;', data_str)
     unique_classes = list(set(all_classes))
     
     # SDK patterns (for exclusion in manual analysis)
@@ -346,32 +466,200 @@ def analyze_single_dex_detailed(dex_file_path):
         r'^L(oat|odex|vdex|art)/'
     ]
     
+    # Add custom SDK patterns if provided
+    if sdk_config:
+        custom_sdk_classes = sdk_config.get('sdk_classes', [])
+        custom_legitimate_classes = sdk_config.get('legitimate_classes', [])
+        
+        # Handle both old format (list of strings) and new format (list of objects with pattern/class_count)
+        if custom_sdk_classes and isinstance(custom_sdk_classes[0], dict):
+            # New format: [{"pattern": "com/fasterxml", "class_count": 8}, ...]
+            custom_patterns = [item['pattern'] for item in custom_sdk_classes]
+            total_custom_classes = sum(item.get('class_count', 1) for item in custom_sdk_classes)
+            safe_print(f"📋 Adding {len(custom_patterns)} custom SDK patterns ({total_custom_classes} total classes)")
+        else:
+            # Old format: ["com/fasterxml", "com/google/gson", ...]
+            custom_patterns = custom_sdk_classes
+            safe_print(f"📋 Adding {len(custom_patterns)} custom SDK class patterns")
+        
+        if custom_legitimate_classes:
+            safe_print(f"📋 Adding {len(custom_legitimate_classes)} custom legitimate class patterns")
+        
+        # Add custom SDK patterns - ensure they start with L and end with /
+        for pattern in custom_patterns:
+            if pattern and not pattern.startswith('^'):
+                # Convert class pattern to regex pattern
+                if pattern.startswith('L') and pattern.endswith('/'):
+                    regex_pattern = f'^{re.escape(pattern)}'
+                elif pattern.startswith('L'):
+                    regex_pattern = f'^{re.escape(pattern)}/'
+                else:
+                    regex_pattern = f'^L{re.escape(pattern)}/'
+                sdk_patterns.append(regex_pattern)
+        
+        # Add custom legitimate patterns
+        for pattern in custom_legitimate_classes:
+            if pattern and not pattern.startswith('^'):
+                # Convert class pattern to regex pattern
+                if pattern.startswith('L') and pattern.endswith('/'):
+                    regex_pattern = f'^{re.escape(pattern)}'
+                elif pattern.startswith('L'):
+                    regex_pattern = f'^{re.escape(pattern)}/'
+                else:
+                    regex_pattern = f'^L{re.escape(pattern)}/'
+                legitimate_patterns.append(regex_pattern)
+    
     def is_sdk_class(class_name):
-        """Check if class is from SDK."""
+        """Check if class is from SDK (including custom SDK patterns)."""
+        # Normalize malformed class names (handle multiple L prefixes like LLcom/google/)
+        normalized_name = class_name
+        if class_name.startswith('L'):
+            # Remove extra L prefixes - find the first non-L character or valid package start
+            i = 0
+            while i < len(class_name) and class_name[i] == 'L':
+                i += 1
+            if i > 1:  # If we found multiple L's
+                normalized_name = 'L' + class_name[i:]
+        
         for pattern in sdk_patterns:
-            if re.match(pattern, class_name):
+            if re.match(pattern, normalized_name):
                 return True
         return False
     
     def is_legitimate_short(class_name):
-        """Check if class is legitimate short name."""
+        """Check if class is legitimate short name (including custom patterns)."""
         for pattern in legitimate_patterns:
             if re.match(pattern, class_name):
                 return True
         return False
     
-    # Filter out SDK and legitimate classes for manual analysis
+    def is_app_specific_class(class_name):
+        """Check if class belongs to the main application (not third-party SDK)"""
+        # This is a heuristic - you might want to customize this based on your needs
+        app_specific_patterns = [
+            r'^Lcom/zebra/',      # Zebra-specific classes
+            r'^Lcom/symbol/',     # Symbol-specific classes
+            r'^Lcom/motorolasolutions/',  # Motorola Solutions classes
+            # Add other app-specific patterns as needed
+        ]
+        
+        # Normalize malformed class names
+        normalized_name = class_name
+        if class_name.startswith('L'):
+            i = 0
+            while i < len(class_name) and class_name[i] == 'L':
+                i += 1
+            if i > 1:
+                normalized_name = 'L' + class_name[i:]
+        
+        for pattern in app_specific_patterns:
+            if re.match(pattern, normalized_name):
+                return True
+        return False
+    
+    # Helper function to check for very short classes (matches zebra_sdk_discovery.py logic)
+    def is_very_short_class(class_name):
+        """Check if class has very short (1-3 character) package or class names."""
+        if not class_name.startswith('L') or not class_name.endswith(';'):
+            return False
+        
+        # Remove L and ; prefix/suffix
+        class_path = class_name[1:-1]
+        
+        # Split by / to get package components
+        parts = class_path.split('/')
+        
+        # Check if any package component is 1-3 characters (excluding legitimate ones)
+        for part in parts:
+            if len(part) <= 3:
+                # Allow some legitimate 1-3 char components
+                legitimate_short_components = {
+                    'io', 'os', 'ui', 'vm', 'db', 'js', 'tv', 'ai', 'ar', 'vr', '3d',
+                    'www', 'ftp', 'cdn', 'aws', 'gcp', 'api', 'sdk', 'ide', 'jvm', 'jre', 'jdk',
+                    'gcc', 'npm', 'pip', 'git', 'svn', 'exe', 'dll', 'png', 'jpg', 'gif', 'bmp',
+                    'svg', 'ico', 'mp3', 'mp4', 'avi', 'mov', 'wav', 'ogg', 'zip', 'rar', 'tar',
+                    'txt', 'doc', 'pdf', 'xls', 'ppt', 'csv', 'xml', 'sql', 'app', 'net', 'gui',
+                    'jwt', 'ssl', 'tls', 'rsa', 'aes', 'des', 'md5', 'sha', 'url', 'uri', 'css',
+                    'dom', 'tcp', 'udp', 'ssh', 'yml', 'log', 'tmp', 'bin', 'lib', 'jar', 'war',
+                    'ear', 'dex', 'oat', 'art', 'com', 'org', 'net', 'edu', 'gov', 'mil'
+                }
+                
+                if part.lower() not in legitimate_short_components:
+                    return True
+        
+        return False
+    
+    # Helper function to check for obfuscated patterns (matches zebra_sdk_discovery.py logic)
+    def has_obfuscated_pattern(class_name):
+        """Check if class appears to be obfuscated (single letters, numbers, random chars)."""
+        if not class_name.startswith('L') or not class_name.endswith(';'):
+            return False
+        
+        class_path = class_name[1:-1]
+        parts = class_path.split('/')
+        
+        # Check for common obfuscation patterns
+        for part in parts:
+            # Single character components (except legitimate ones)
+            if len(part) == 1 and part not in 'iorpabcdefghijklmnqstuvwxyz':
+                return True
+            
+            # All numbers
+            if part.isdigit():
+                return True
+            
+            # Mixed random characters (heuristic: mostly consonants or no vowels)
+            if len(part) >= 4:
+                vowels = sum(1 for c in part.lower() if c in 'aeiou')
+                consonants = sum(1 for c in part.lower() if c.isalpha() and c not in 'aeiou')
+                # If ratio of consonants to vowels is very high, likely obfuscated
+                if vowels == 0 and consonants > 3:
+                    return True
+                if consonants > 0 and vowels / (consonants + vowels) < 0.15:
+                    return True
+        
+        return False
+
+    # CORRECT IMPLEMENTATION: Filter classes step by step following zebra_sdk_discovery.py logic
     logical_classes_manual = []
     sdk_classes_manual = []
     legitimate_classes_manual = []
+    very_short_classes_filtered = 0
+    obfuscated_classes_filtered = 0
     
+    # Step 1: Filter out SDK classes, legitimate classes, very short classes, and obfuscated classes
     for class_name in unique_classes:
         if is_sdk_class(class_name):
             sdk_classes_manual.append(class_name)
         elif is_legitimate_short(class_name):
             legitimate_classes_manual.append(class_name)
+        elif is_very_short_class(class_name):
+            very_short_classes_filtered += 1
+        elif has_obfuscated_pattern(class_name):
+            obfuscated_classes_filtered += 1
         else:
             logical_classes_manual.append(class_name)
+    
+    # Step 2: From logical classes, filter out app-specific classes to get non-discovered SDK classes
+    non_discovered_sdk_classes_manual = []
+    app_specific_classes_manual = []
+    
+    for class_name in logical_classes_manual:
+        if is_app_specific_class(class_name):
+            app_specific_classes_manual.append(class_name)
+        else:
+            non_discovered_sdk_classes_manual.append(class_name)
+    
+    # Debug information for the corrected calculation
+    safe_print(f"   📊 Manual analysis - corrected logical class calculation:")
+    safe_print(f"      Total unique classes: {len(unique_classes):,}")
+    safe_print(f"      SDK classes excluded: {len(sdk_classes_manual):,}")
+    safe_print(f"      Legitimate classes excluded: {len(legitimate_classes_manual):,}")
+    safe_print(f"      Very short classes excluded: {very_short_classes_filtered:,}")
+    safe_print(f"      Obfuscated classes excluded: {obfuscated_classes_filtered:,}")
+    safe_print(f"      Logical classes (clean): {len(logical_classes_manual):,}")
+    safe_print(f"      App-specific classes: {len(app_specific_classes_manual):,}")
+    safe_print(f"      Non-discovered SDK classes: {len(non_discovered_sdk_classes_manual):,}")
     
     # Manual analysis of logical classes for obfuscation patterns
     manual_two_digit_classes = []
@@ -497,6 +785,7 @@ def analyze_single_dex_detailed(dex_file_path):
     manual_patterns['logical_classes'] = len(logical_classes_manual)
     manual_patterns['sdk_classes'] = len(sdk_classes_manual)
     manual_patterns['legitimate_classes'] = len(legitimate_classes_manual)
+    manual_patterns['non_discovered_sdk_classes'] = len(non_discovered_sdk_classes_manual)
     manual_patterns['single_digit_classes'] = len(manual_single_digit_classes)
     manual_patterns['two_digit_classes'] = len(manual_two_digit_classes)
     
@@ -524,30 +813,43 @@ def analyze_single_dex_detailed(dex_file_path):
     # Calculate using EXACT YARA logic - FIXED to match YARA's dex.header.class_defs_size
     total_classes_regex = patterns['class_pattern']  # Keep for comparison
     total_classes_dex_header = dex_header_class_defs_size  # Use DEX header like YARA
+    
     # SDK classes calculation synchronized with YARA obfuscators.yara massive_name_obfuscation rule
+    # Include custom SDK patterns in calculation
     sdk_classes_raw = (patterns['google_class'] + patterns['com_android_class'] + patterns['android_class'] + patterns['androidx_class'] + 
                        patterns['kotlin_class'] + patterns['java_class'] + patterns['kotlinx_class'] + 
                        patterns['dalvik_class'] + patterns['org_class'] + patterns['retrofit2_class'] + 
                        patterns['ro_class'] + patterns['view_class'] + patterns['persist_class'] + 
                        patterns['sun_class'] + patterns['guava_class'] + patterns['vnd_android_class'] + 
                        patterns['schemas_android_class'] + patterns['in_collections_class'] + 
-                       patterns['media_class'] + patterns['legitimate_short'])
+                       patterns['media_class'] + patterns['legitimate_short'] + patterns['custom_legitimate'] + 
+                       patterns['custom_sdk_classes'])  # Include custom SDK patterns
     
     # CRITICAL FIX: Cap SDK classes to never exceed total classes (prevents negative logical classes)
     # Root cause: YARA patterns count string table occurrences, not unique class definitions
     sdk_classes = min(sdk_classes_raw, total_classes_dex_header)
     
     # YARA uses dex.header.class_defs_size for total classes but regex patterns for SDK classes
-    logical_classes = max(0, total_classes_dex_header - sdk_classes)
+    # NOTE: YARA "logical_classes" = total_classes - sdk_classes (simplified approximation)
+    # This differs from true logical classes which also exclude obfuscated patterns
+    yara_approximate_logical_classes = max(0, total_classes_dex_header - sdk_classes)
+    
+    # Note: YARA method cannot calculate accurate non-discovered SDK classes
+    # because it lacks sophisticated filtering of obfuscated patterns.
+    # Only the manual analysis provides accurate non-discovered SDK calculations.
     
     # Debug logging for the PhotoTable case
     if sdk_classes_raw != sdk_classes:
         safe_print(f"   🔧 FIX APPLIED: SDK classes capped from {sdk_classes_raw:,} to {sdk_classes:,}")
         safe_print(f"   📊 Reason: SDK count exceeded total classes ({total_classes_dex_header:,})")
     
-    if logical_classes == 0 and total_classes_dex_header > 0:
+    if yara_approximate_logical_classes == 0 and total_classes_dex_header > 0:
         safe_print(f"   ⚠️  WARNING: All {total_classes_dex_header:,} classes detected as SDK classes")
         safe_print(f"   💡 Non-SDK classes (like zebra.util) may be miscategorized as SDK")
+        safe_print(f"   🔍 Custom SDK patterns contributed: {patterns['custom_sdk_classes']:,} classes")
+    
+    safe_print(f"   📊 Custom SDK detection: {patterns['custom_sdk_classes']:,} classes")
+    safe_print(f"   📊 Custom legitimate detection: {patterns['custom_legitimate']:,} classes")
     
     # Pattern-specific counts using EXACT YARA logic
     short_strings = (patterns['short_a'] + patterns['short_b'] + patterns['short_c'] + 
@@ -566,7 +868,9 @@ def analyze_single_dex_detailed(dex_file_path):
     safe_print(f"   DEX header classes: {total_classes_dex_header:,}")
     safe_print(f"   SDK classes: {sdk_classes:,}")
     safe_print(f"   Legitimate short: {patterns['legitimate_short']:,}")
-    safe_print(f"   Logical classes: {logical_classes:,}")
+    safe_print(f"   Custom SDK classes: {patterns['custom_sdk_classes']:,}")
+    safe_print(f"   Custom legitimate: {patterns['custom_legitimate']:,}")
+    safe_print(f"   Logical classes: {yara_approximate_logical_classes:,}")
     safe_print(f"   Short strings (a-e): {short_strings:,}")
     safe_print(f"   Single class names: {single_classes:,}")
     safe_print(f"   Two-char classes: {two_char_classes:,}")
@@ -579,6 +883,7 @@ def analyze_single_dex_detailed(dex_file_path):
     safe_print(f"   SDK classes (excluded): {manual_patterns['sdk_classes']:,}")
     safe_print(f"   Legitimate short (excluded): {manual_patterns['legitimate_classes']:,}")
     safe_print(f"   Logical classes analyzed: {manual_patterns['logical_classes']:,}")
+    safe_print(f"   Non-discovered SDK classes: {manual_patterns['non_discovered_sdk_classes']:,}")
     safe_print(f"   Single-digit classes: {manual_patterns['single_digit_classes']:,}")
     safe_print(f"   Two-digit classes: {manual_patterns['two_digit_classes']:,}")
     safe_print(f"   Three-digit classes: {manual_patterns['three_digit_classes']:,}")
@@ -616,7 +921,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Basic requirements evaluation for both methods
     req1_min_classes = total_classes_dex_header >= 50  # Common requirement
-    req2_logical_classes_yara = logical_classes > 0
+    req2_logical_classes_yara = yara_approximate_logical_classes > 0
     req2_logical_classes_manual = manual_patterns['logical_classes'] > 0
     
     # Use manual requirements for condition counting (since this is manual analysis)
@@ -626,7 +931,7 @@ def analyze_single_dex_detailed(dex_file_path):
         conditions_passed += 1
     
     safe_print(f"Requirement 1 - Min classes: {total_classes_dex_header} >= 50 = {'✅' if req1_min_classes else '❌'}")
-    safe_print(f"Requirement 2 - YARA logical classes: {logical_classes} > 0 = {'✅' if req2_logical_classes_yara else '❌'}")
+    safe_print(f"Requirement 2 - YARA logical classes: {yara_approximate_logical_classes} > 0 = {'✅' if req2_logical_classes_yara else '❌'}")
     safe_print(f"Requirement 2 - Manual logical classes: {manual_patterns['logical_classes']} > 0 = {'✅' if req2_logical_classes_manual else '❌'}")
     
     if not req2_logical_classes_manual:
@@ -645,7 +950,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Method 1: Short strings ratio - BOTH approaches
     method1_count_ok_yara = short_strings > 20
-    method1_ratio_yara = (short_strings * 3 / logical_classes) if logical_classes > 0 else 0
+    method1_ratio_yara = (short_strings * 3 / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method1_ratio_ok_yara = method1_ratio_yara > 1.0  # 33.3%
     method1_passed_yara = method1_count_ok_yara and method1_ratio_ok_yara
     
@@ -666,7 +971,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Method 2: Single class names - BOTH approaches
     method2_count_ok_yara = single_classes > 10
-    method2_ratio_yara = (single_classes * 2 / logical_classes) if logical_classes > 0 else 0
+    method2_ratio_yara = (single_classes * 2 / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method2_ratio_ok_yara = method2_ratio_yara > 1.0  # 50%
     method2_passed_yara = method2_count_ok_yara and method2_ratio_ok_yara
     
@@ -688,7 +993,7 @@ def analyze_single_dex_detailed(dex_file_path):
     # Method 3: Two-char classes - BOTH approaches
     two_char_logical = max(0, two_char_classes - patterns['legitimate_short'])
     method3_count_ok_yara = two_char_logical > 15
-    method3_ratio_yara = (two_char_logical * 2 / logical_classes) if logical_classes > 0 else 0
+    method3_ratio_yara = (two_char_logical * 2 / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method3_ratio_ok_yara = method3_ratio_yara > 1.0  # 50%
     method3_passed_yara = method3_count_ok_yara and method3_ratio_ok_yara
     
@@ -710,7 +1015,7 @@ def analyze_single_dex_detailed(dex_file_path):
     # Method 3b: Three-char classes - BOTH approaches
     three_char_logical = max(0, three_char_classes - patterns['legitimate_short'])
     method3b_count_ok_yara = three_char_logical > 15
-    method3b_ratio_yara = (three_char_logical * 3 / logical_classes) if logical_classes > 0 else 0
+    method3b_ratio_yara = (three_char_logical * 3 / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method3b_ratio_ok_yara = method3b_ratio_yara > 1.0  # 33.3%
     method3b_passed_yara = method3b_count_ok_yara and method3b_ratio_ok_yara
     
@@ -731,7 +1036,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Method 4: Single methods - BOTH approaches
     method4_count_ok_yara = single_methods > 30
-    method4_ratio_yara = (single_methods * 4 / logical_classes) if logical_classes > 0 else 0
+    method4_ratio_yara = (single_methods * 4 / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method4_ratio_ok_yara = method4_ratio_yara > 1.0  # 25%
     method4_passed_yara = method4_count_ok_yara and method4_ratio_ok_yara
     
@@ -752,8 +1057,8 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Method 5: Combined extreme - BOTH approaches
     combined_obf_yara = short_strings + single_classes + two_char_logical + three_char_logical
-    method5_classes_ok_yara = logical_classes > 50
-    method5_ratio_yara = (combined_obf_yara / logical_classes) if logical_classes > 0 else 0
+    method5_classes_ok_yara = yara_approximate_logical_classes > 50
+    method5_ratio_yara = (combined_obf_yara / yara_approximate_logical_classes) if yara_approximate_logical_classes > 0 else 0
     method5_ratio_ok_yara = method5_ratio_yara > 0.6  # 60%
     method5_passed_yara = method5_classes_ok_yara and method5_ratio_ok_yara
     
@@ -852,7 +1157,7 @@ def analyze_single_dex_detailed(dex_file_path):
         'method_5_combined_extreme': {
             'passed': method5_passed_yara,
             'count_threshold': 50,
-            'count_actual': logical_classes,
+            'count_actual': yara_approximate_logical_classes,
             'count_ok': method5_classes_ok_yara,
             'ratio_threshold': 0.6,
             'ratio_actual': method5_ratio_yara,
@@ -901,19 +1206,22 @@ def analyze_single_dex_detailed(dex_file_path):
     return percentage, should_trigger, methods_detail, methods_summary
 
 def main():
-    if len(sys.argv) != 2:
-        safe_print("Usage: python comprehensive_massive_obf_test.py <file_path>")
-        safe_print("Supports: APK files, DEX files")
-        safe_print("Example: python comprehensive_massive_obf_test.py app.apk")
-        safe_print("Example: python comprehensive_massive_obf_test.py classes.dex")
+    parser = argparse.ArgumentParser(description='Comprehensive massive obfuscation rule testing')
+    parser.add_argument('input_file', help='APK or DEX file to analyze')
+    parser.add_argument('--sdk-config', help='Path to SDK configuration JSON file')
+    
+    args = parser.parse_args()
+    
+    if not os.path.exists(args.input_file):
+        safe_print(f"❌ Error: File not found: {args.input_file}")
         sys.exit(1)
     
-    input_file = sys.argv[1]
-    if not os.path.exists(input_file):
-        safe_print(f"❌ Error: File not found: {input_file}")
-        sys.exit(1)
+    # Load SDK configuration if provided
+    sdk_config = None
+    if args.sdk_config:
+        sdk_config = load_sdk_config_from_file(args.sdk_config)
     
-    test_massive_obfuscation_with_percentage(input_file)
+    test_massive_obfuscation_with_percentage(args.input_file, sdk_config)
 
 if __name__ == "__main__":
     main()

@@ -20,6 +20,214 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 if sys.platform == "win32":
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
+def load_sdk_configuration(config_path):
+    """
+    Load SDK configuration from JSON file
+    
+    Expected JSON structure:
+    {
+        "packages": {
+            "com.zebra.example": {
+                "sdk_classes": [
+                    "Lcom/zebra/rfid/",
+                    "Lcom/zebra/barcode/",
+                    "Lcom/symbol/emdk/"
+                ],
+                "legitimate_classes": [
+                    "Lzebra/",
+                    "Lsymbol/"
+                ]
+            },
+            "com.honeywell.example": {
+                "sdk_classes": [
+                    "Lcom/honeywell/aidc/",
+                    "Lcom/intermec/"
+                ],
+                "legitimate_classes": [
+                    "Lhw/",
+                    "Laidc/"
+                ]
+            }
+        }
+    }
+    """
+    if not config_path or not os.path.exists(config_path):
+        return None
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Validate configuration structure
+        if 'packages' not in config:
+            print(f"Warning: SDK configuration missing 'packages' section")
+            return None
+        
+        # Validate each package configuration
+        for package_name, package_config in config['packages'].items():
+            if not isinstance(package_config, dict):
+                print(f"Warning: Invalid package configuration for {package_name}")
+                continue
+            
+            # Ensure sdk_classes and legitimate_classes are lists
+            if 'sdk_classes' in package_config and not isinstance(package_config['sdk_classes'], list):
+                print(f"Warning: 'sdk_classes' for {package_name} should be a list")
+                package_config['sdk_classes'] = []
+            
+            if 'legitimate_classes' in package_config and not isinstance(package_config['legitimate_classes'], list):
+                print(f"Warning: 'legitimate_classes' for {package_name} should be a list")
+                package_config['legitimate_classes'] = []
+            
+            # Set defaults if missing
+            package_config.setdefault('sdk_classes', [])
+            package_config.setdefault('legitimate_classes', [])
+        
+        print(f"✅ Loaded SDK configuration for {len(config['packages'])} packages")
+        return config
+        
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in SDK configuration file: {e}")
+        return None
+    except Exception as e:
+        print(f"Error: Failed to load SDK configuration: {e}")
+        return None
+
+def get_package_sdk_config(package_name, sdk_config):
+    """
+    Get SDK configuration for a specific package name
+    Supports exact match and wildcard matching
+    """
+    if not sdk_config or 'packages' not in sdk_config:
+        return None
+    
+    packages = sdk_config['packages']
+    
+    # First try exact match
+    if package_name in packages:
+        return packages[package_name]
+    
+    # Try wildcard matching - find the most specific match
+    best_match = None
+    best_match_length = 0
+    
+    for config_package, config_data in packages.items():
+        # Check if config package is a prefix of the actual package
+        if package_name.startswith(config_package):
+            if len(config_package) > best_match_length:
+                best_match = config_data
+                best_match_length = len(config_package)
+        # Check if the config package contains wildcards
+        elif '*' in config_package:
+            # Convert wildcard pattern to regex
+            pattern = config_package.replace('*', '.*')
+            if re.match(pattern, package_name):
+                if len(config_package.replace('*', '')) > best_match_length:
+                    best_match = config_data
+                    best_match_length = len(config_package.replace('*', ''))
+    
+    return best_match
+
+def apply_sdk_config_to_comprehensive_test(apk_path, package_name, sdk_config, timeout=45):
+    """
+    Run comprehensive massive obfuscation test with SDK configuration
+    """
+    print(f"    Running comprehensive massive obfuscation test with SDK config... (timeout: {timeout}s)")
+    start_time = time.time()
+    
+    try:
+        # Get the script directory to find comprehensive_massive_obf_test.py
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        comprehensive_script = os.path.join(script_dir, "comprehensive_massive_obf_test.py")
+        
+        if not os.path.exists(comprehensive_script):
+            return {
+                'success': False,
+                'error': f'comprehensive_massive_obf_test.py not found at {comprehensive_script}',
+                'execution_time': 0
+            }
+        
+        # Prepare command arguments
+        cmd = [sys.executable, comprehensive_script, apk_path]
+        
+        # Add SDK configuration if available
+        package_config = get_package_sdk_config(package_name, sdk_config)
+        if package_config:
+            print(f"    📦 Using SDK config for package: {package_name}")
+            print(f"    📋 Custom SDK classes: {len(package_config['sdk_classes'])}")
+            print(f"    📋 Custom legitimate classes: {len(package_config['legitimate_classes'])}")
+            
+            # Create temporary config file for the subprocess
+            temp_config = {
+                'package_name': package_name,
+                'sdk_classes': package_config['sdk_classes'],
+                'legitimate_classes': package_config['legitimate_classes']
+            }
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as temp_file:
+                json.dump(temp_config, temp_file, indent=2)
+                temp_config_path = temp_file.name
+            
+            # Add config file argument
+            cmd.extend(['--sdk-config', temp_config_path])
+        
+        # Run the comprehensive analysis
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding='utf-8',
+            errors='ignore'  # Ignore Unicode encoding errors
+        )
+        
+        # Clean up temporary config file
+        if package_config and 'temp_config_path' in locals():
+            try:
+                os.unlink(temp_config_path)
+            except:
+                pass
+        
+        end_time = time.time()
+        execution_time = end_time - start_time
+        
+        print(f"    Comprehensive test completed in {execution_time:.2f}s, return code: {result.returncode}")
+        
+        # Parse the output to extract key information
+        stdout = result.stdout
+        parsed_data = parse_comprehensive_obf_output(stdout)
+        
+        return {
+            'success': True,
+            'stdout': stdout,
+            'stderr': result.stderr.strip(),
+            'return_code': result.returncode,
+            'execution_time': execution_time,
+            'parsed_analysis': parsed_data,
+            'used_sdk_config': package_config is not None,
+            'package_config': package_config
+        }
+        
+    except subprocess.TimeoutExpired:
+        print(f"    Comprehensive test TIMEOUT after {timeout}s")
+        return {
+            'success': False,
+            'error': f'Comprehensive test timed out after {timeout} seconds',
+            'stdout': '',
+            'stderr': '',
+            'return_code': -1,
+            'execution_time': timeout
+        }
+    except Exception as e:
+        print(f"    Comprehensive test ERROR: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'stdout': '',
+            'stderr': '',
+            'return_code': -1,
+            'execution_time': 0
+        }
+
 def parse_apkid_json_output(stdout):
     """Parse APKiD JSON output into structured data"""
     if not stdout:
@@ -171,8 +379,13 @@ def run_command_with_timeout(cmd, timeout=10):
             'execution_time': 0
         }
 
-def run_comprehensive_massive_obf_test(apk_path, timeout=30):
+def run_comprehensive_massive_obf_test(apk_path, timeout=30, package_name=None, sdk_config=None):
     """Run comprehensive massive obfuscation test and return structured results"""
+    # Use the enhanced version if SDK config is available
+    if sdk_config and package_name:
+        return apply_sdk_config_to_comprehensive_test(apk_path, package_name, sdk_config, timeout)
+    
+    # Fallback to original implementation
     print(f"    Running comprehensive massive obfuscation test... (timeout: {timeout}s)")
     start_time = time.time()
     
@@ -1034,7 +1247,7 @@ def format_comprehensive_dual_analysis_summary(parsed_result):
     return "\n".join(output)
 
 
-def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False):
+def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False, sdk_config=None):
     """Analyze a single APK with available tools"""
     apk_name = os.path.basename(apk_path)
     apk_size = os.path.getsize(apk_path) / (1024*1024)
@@ -1051,12 +1264,32 @@ def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False):
         'package_name': package_name
     }
     
-    # Run APKiD using local development version with debug rules
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    local_apkid = os.path.join(script_dir, 'local_apkid.py')
+    # Check if SDK configuration is available for this package
+    package_config = None
+    if sdk_config and package_name:
+        package_config = get_package_sdk_config(package_name, sdk_config)
+        if package_config:
+            print(f"📦 Found SDK configuration for package: {package_name}")
+            print(f"   📋 Custom SDK classes: {len(package_config['sdk_classes'])}")
+            print(f"   📋 Custom legitimate classes: {len(package_config['legitimate_classes'])}")
+            result_data['used_sdk_config'] = True
+            result_data['sdk_config_summary'] = {
+                'sdk_classes_count': len(package_config['sdk_classes']),
+                'legitimate_classes_count': len(package_config['legitimate_classes']),
+                'config_patterns': {
+                    'sdk_classes': package_config['sdk_classes'][:5],  # Show first 5 patterns
+                    'legitimate_classes': package_config['legitimate_classes'][:5]
+                }
+            }
+        else:
+            print(f"📦 No SDK configuration found for package: {package_name}")
+            result_data['used_sdk_config'] = False
+    else:
+        result_data['used_sdk_config'] = False
     
+    # Run APKiD using module approach (confirmed working)
     apkid_result = run_command_with_timeout(
-        [sys.executable, local_apkid, '-j', apk_path],
+        [sys.executable, '-m', 'apkid', '-j', apk_path],
         timeout=30  # Increased timeout for better reliability
     )
     
@@ -1085,7 +1318,12 @@ def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False):
     
     # Run comprehensive massive obfuscation test if requested
     if include_comprehensive:
-        comprehensive_result = run_comprehensive_massive_obf_test(apk_path, timeout=45)
+        comprehensive_result = run_comprehensive_massive_obf_test(
+            apk_path, 
+            timeout=45, 
+            package_name=package_name, 
+            sdk_config=sdk_config
+        )
         result_data['comprehensive_massive_obf_result'] = comprehensive_result
     
     return result_data
@@ -1101,53 +1339,56 @@ def extract_package_name(apk_path):
                 text=True,
                 timeout=10,
                 encoding='utf-8',
-                errors='ignore'  # Ignore encoding errors
+                errors='replace'  # Handle encoding issues
             )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
+            if result.returncode == 0 and result.stdout:
+                # Fix: Check if stdout is not None before calling split
+                stdout_lines = result.stdout.split('\n') if result.stdout else []
+                for line in stdout_lines:
                     if line.startswith('package:'):
                         # Extract package name from line like: package: name='com.zebra.demo' versionCode='1' versionName='1.0'
                         match = re.search(r"name='([^']+)'", line)
                         if match:
                             return match.group(1)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            # aapt not available or timeout, fall back to zipfile parsing
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, OSError):
+            # Broader exception handling for subprocess issues
             pass
         
         # Fallback: Parse AndroidManifest.xml from APK using zipfile
         try:
             with zipfile.ZipFile(apk_path, 'r') as apk_zip:
-                # Try to find AndroidManifest.xml
-                if 'AndroidManifest.xml' in apk_zip.namelist():
-                    manifest_data = apk_zip.read('AndroidManifest.xml')
-                    # For binary XML, we need to look for package string patterns
-                    # This is a simple heuristic that works for many cases
-                    
-                    # Look for com.zebra or com.symbol patterns in the binary data
-                    zebra_match = re.search(rb'com\.zebra\.[a-zA-Z0-9_.]+', manifest_data)
-                    if zebra_match:
-                        return zebra_match.group(0).decode('utf-8', errors='ignore')
-                    
-                    symbol_match = re.search(rb'com\.symbol\.[a-zA-Z0-9_.]+', manifest_data)
-                    if symbol_match:
-                        return symbol_match.group(0).decode('utf-8', errors='ignore')
-                    
-                    # Look for general package patterns - more careful with decoding
-                    # Try to find common package name patterns in the binary data
-                    for pattern in [rb'[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*){2,}']:
-                        matches = re.findall(pattern, manifest_data)
-                        for match in matches:
-                            try:
-                                candidate = match.decode('utf-8', errors='ignore')
-                                # Filter out common false positives and ensure it looks like a package name
-                                if (len(candidate) > 5 and 
-                                    not candidate.startswith(('android.', 'java.', 'javax.', 'org.apache', 'com.android.')) and
-                                    candidate.count('.') >= 2 and
-                                    not any(char in candidate for char in [' ', '\n', '\t', '\r'])):
-                                    return candidate
-                            except:
-                                continue
-        except Exception:
+                # Check if AndroidManifest.xml exists
+                if 'AndroidManifest.xml' not in apk_zip.namelist():
+                    return None
+                
+                manifest_data = apk_zip.read('AndroidManifest.xml')
+                
+                # Look for com.zebra or com.symbol patterns in the binary data first
+                zebra_match = re.search(rb'com\.zebra\.[a-zA-Z0-9_.]+', manifest_data)
+                if zebra_match:
+                    return zebra_match.group(0).decode('utf-8', errors='ignore')
+                
+                symbol_match = re.search(rb'com\.symbol\.[a-zA-Z0-9_.]+', manifest_data)
+                if symbol_match:
+                    return symbol_match.group(0).decode('utf-8', errors='ignore')
+                
+                # Look for general package patterns - more careful with decoding
+                # Try to find common package name patterns in the binary data
+                for pattern in [rb'[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*){2,}']:
+                    matches = re.findall(pattern, manifest_data)
+                    for match in matches:
+                        try:
+                            candidate = match.decode('utf-8', errors='ignore')
+                            # Filter out common false positives and ensure it looks like a package name
+                            if (len(candidate) > 5 and 
+                                not candidate.startswith(('android.', 'java.', 'javax.', 'org.apache', 'com.android.')) and
+                                candidate.count('.') >= 2 and
+                                not any(char in candidate for char in [' ', '\n', '\t', '\r'])):
+                                return candidate
+                        except (UnicodeDecodeError, AttributeError):
+                            continue
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, KeyError, OSError):
+            # Handle corrupted or invalid APK files
             pass
         
         return None
@@ -1173,8 +1414,19 @@ def main():
     parser.add_argument('--save-comprehensive-details', help='Save detailed comprehensive analysis results to separate file')
     parser.add_argument('--show-dual-analysis', action='store_true', help='Display dual analysis effectiveness comparison for each APK')
     parser.add_argument('--zebra-only', action='store_true', help='Only analyze APKs with package names starting with com.zebra or com.symbol')
+    parser.add_argument('--sdk-config', help='Path to SDK configuration JSON file for package-specific SDK class definitions')
     
     args = parser.parse_args()
+    
+    # Load SDK configuration if provided
+    sdk_config = None
+    if args.sdk_config:
+        print(f"Loading SDK configuration from: {args.sdk_config}")
+        sdk_config = load_sdk_configuration(args.sdk_config)
+        if sdk_config:
+            print(f"✅ SDK configuration loaded successfully")
+        else:
+            print(f"❌ Failed to load SDK configuration, proceeding without it")
     
     # Validate inputs
     if not os.path.isdir(args.directory):
@@ -1286,11 +1538,16 @@ def main():
                     'apk_path': apk_path,
                     'apk_size_mb': os.path.getsize(apk_path) / (1024*1024)
                 }
-                comprehensive_result = run_comprehensive_massive_obf_test(apk_path, timeout=60)
+                comprehensive_result = run_comprehensive_massive_obf_test(
+                    apk_path, 
+                    timeout=60, 
+                    package_name=extract_package_name(apk_path), 
+                    sdk_config=sdk_config
+                )
                 result['comprehensive_massive_obf_result'] = comprehensive_result
             else:
                 # Run normal analysis with optional comprehensive
-                result = analyze_single_apk(apk_path, args.r8_jar, include_comprehensive)
+                result = analyze_single_apk(apk_path, args.r8_jar, include_comprehensive, sdk_config)
             
             results.append(result)
             
@@ -1382,11 +1639,30 @@ def main():
     consistent_results = 0
     
     for r in results:
+        # Count APKiD detections from regular APKiD scans
+        apkid_result = r.get('apkid_result')
+        if apkid_result and apkid_result.get('success') and apkid_result.get('parsed_output'):
+            parsed_apkid = apkid_result['parsed_output']
+            if parsed_apkid and 'files' in parsed_apkid:
+                # Check if any file has massive name obfuscation detection
+                for file_info in parsed_apkid['files']:
+                    matches = file_info.get('matches', {})
+                    obfuscator_matches = matches.get('obfuscator', [])
+                    for match in obfuscator_matches:
+                        if 'massive name obfuscation' in match.lower():
+                            massive_obf_detected_apkid += 1
+                            break  # Count once per APK, not per file
+                    if any('massive name obfuscation' in match.lower() for match in obfuscator_matches):
+                        break  # Already counted this APK
+        
+        # Count comprehensive analysis results
         comp_result = r.get('comprehensive_massive_obf_result')
         if comp_result and comp_result.get('success') and comp_result.get('parsed_analysis'):
             analysis = comp_result['parsed_analysis']
-            if analysis.get('apkid_detected_massive_obf'):
-                massive_obf_detected_apkid += 1
+            # Don't double-count APKiD detections if we already counted them above
+            if not apkid_result or not apkid_result.get('success'):
+                if analysis.get('apkid_detected_massive_obf'):
+                    massive_obf_detected_apkid += 1
             if analysis.get('manual_analysis_result') == 'SHOULD_TRIGGER':
                 massive_obf_detected_manual += 1
             if analysis.get('consistency_check') == 'CONSISTENT':

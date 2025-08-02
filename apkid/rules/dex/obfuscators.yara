@@ -690,6 +690,8 @@ rule r8_obfuscation : obfuscator
 // Each method is now a separate rule for detailed debugging and analysis
 // Fixed: Each rule contains its own pattern definitions (YARA doesn't support cross-rule pattern references)
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method1_single_char_strings : obfuscator
 {
   meta:
@@ -726,7 +728,10 @@ rule massive_obf_method1_single_char_strings : obfuscator
     (#short_a + #short_b + #short_c + #short_d + #short_e) * 3 > 
     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method2_single_char_classes : obfuscator
 {
   meta:
@@ -761,7 +766,10 @@ rule massive_obf_method2_single_char_classes : obfuscator
     (#single_class_simple + #single_class_package + #single_class_complex) * 2 > 
     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method3_two_char_classes : obfuscator
 {
   meta:
@@ -794,7 +802,10 @@ rule massive_obf_method3_two_char_classes : obfuscator
     (#two_char_class - #legitimate_short) * 2 > 
     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method3b_three_char_classes : obfuscator
 {
   meta:
@@ -827,7 +838,10 @@ rule massive_obf_method3b_three_char_classes : obfuscator
     (#three_char_class - #legitimate_short) * 3 > 
     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method4_single_char_methods : obfuscator
 {
   meta:
@@ -860,7 +874,10 @@ rule massive_obf_method4_single_char_methods : obfuscator
     #single_method * 4 > 
     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 rule massive_obf_method5_extreme_combined : obfuscator
 {
   meta:
@@ -907,7 +924,10 @@ rule massive_obf_method5_extreme_combined : obfuscator
       (#three_char_class - #legitimate_short)) * 3 > 
      (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short))
 }
+*/
 
+// COMMENTED OUT: Using comprehensive_massive_obf_test.py for YARA strict analysis instead
+/*
 // Unified rule that matches any of the individual methods (equivalent to original)
 rule massive_name_obfuscation : obfuscator
 {
@@ -923,5 +943,6 @@ rule massive_name_obfuscation : obfuscator
     massive_obf_method4_single_char_methods or 
     massive_obf_method5_extreme_combined
 }
+*/
 
 
