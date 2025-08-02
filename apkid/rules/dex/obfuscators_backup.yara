@@ -686,16 +686,16 @@ rule r8_obfuscation : obfuscator
     )
 }
 
-// DEBUG VERSION: Individual detection methods for massive name obfuscation analysis
-// Each method is now a separate rule for detailed debugging and analysis
-// Fixed: Each rule contains its own pattern definitions (YARA doesn't support cross-rule pattern references)
-
-rule massive_obf_method1_single_char_strings : obfuscator
+rule massive_name_obfuscation : obfuscator
 {
   meta:
-    description = "Method 1: High ratio of single character strings in logical classes (33%+)"
-    author = "APKiD Debug Analysis"
-    method = "single_char_strings"
+    description = "massive name obfuscation (logical class ratio, excludes SDK/legitimate classes)"
+    author = "APKiD Enhanced Analysis"
+    // Enhanced single character class detection - covers simple (La;), package (La/b;), and complex (La/b/c/d;) patterns
+    // Addresses issue where single character classes in complex package structures were missed
+    // FIX: Use dex.header.class_defs_size instead of #class_pattern for consistent data sources
+    // This resolves mathematical impossibilities where logical_classes > total_classes
+    // Same fix as applied to parse_individual_dex_result() - use authoritative DEX header data
     
   strings:
     // Pattern for detecting very short obfuscated names
@@ -705,143 +705,22 @@ rule massive_obf_method1_single_char_strings : obfuscator
     $short_d = { 00 03 64 00 }  // "\x00\x03d\x00"
     $short_e = { 00 03 65 00 }  // "\x00\x03e\x00"
     
-    // SDK package exclusions
-    $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $java_class = /\x00[\x02-\x7F]Ljava\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlinx_class = /\x00[\x02-\x7F]Lkotlinx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odx|vdex|art)\//
-    
-  condition:
-    is_dex and 
-    dex.header.class_defs_size >= 50 and
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short)) and
-    (#short_a + #short_b + #short_c + #short_d + #short_e) > 20 and
-    (#short_a + #short_b + #short_c + #short_d + #short_e) * 3 > 
-    (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
-}
-
-rule massive_obf_method2_single_char_classes : obfuscator
-{
-  meta:
-    description = "Method 2: High ratio of single character class names in logical classes (50%+)"
-    author = "APKiD Debug Analysis"
-    method = "single_char_classes"
-    
-  strings:
     // Single character class names pattern - comprehensive detection
-    $single_class_simple = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La;" through "Lz;"
-    $single_class_package = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La/b;"
-    $single_class_complex = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F [1-50] 3B 00 }  // "La/b/c/d;"
+    $single_class_simple = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La;" through "Lz;" - all single letter classes
+    $single_class_package = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La/b;" - single chars with package structure
+    $single_class_complex = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F [1-50] 3B 00 }  // "La/b/c/d;" - single char start with complex path
     
-    // SDK package exclusions
-    $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $java_class = /\x00[\x02-\x7F]Ljava\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlinx_class = /\x00[\x02-\x7F]Lkotlinx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
-    
-  condition:
-    is_dex and 
-    dex.header.class_defs_size >= 50 and
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short)) and
-    (#single_class_simple + #single_class_package + #single_class_complex) > 10 and
-    (#single_class_simple + #single_class_package + #single_class_complex) * 2 > 
-    (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
-}
-
-rule massive_obf_method3_two_char_classes : obfuscator
-{
-  meta:
-    description = "Method 3: High ratio of two-character classes in logical classes (50%+)"
-    author = "APKiD Debug Analysis"
-    method = "two_char_classes"
-    
-  strings:
-    // Two-character class patterns
+    // Two-character class patterns (common in Zebra-style obfuscation)
     $two_char_class = { 00 ?? 4C ?? ?? 2F ?? ?? 3B 00 }  // L??/??;
     
-    // SDK package exclusions
-    $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $java_class = /\x00[\x02-\x7F]Ljava\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlinx_class = /\x00[\x02-\x7F]Lkotlinx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
-    
-  condition:
-    is_dex and 
-    dex.header.class_defs_size >= 50 and
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short)) and
-    (#two_char_class - #legitimate_short) > 15 and
-    (#two_char_class - #legitimate_short) * 2 > 
-    (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
-}
-
-rule massive_obf_method3b_three_char_classes : obfuscator
-{
-  meta:
-    description = "Method 3b: High ratio of three-character classes in logical classes (33%+)"
-    author = "APKiD Debug Analysis"
-    method = "three_char_classes"
-    
-  strings:
-    // Three-character class patterns
+    // Three-character class patterns (obfuscated 3-letter class names)
     $three_char_class = { 00 ?? 4C ?? ?? ?? 2F ?? ?? ?? 3B 00 }  // L???/???;
     
-    // SDK package exclusions
-    $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $java_class = /\x00[\x02-\x7F]Ljava\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlinx_class = /\x00[\x02-\x7F]Lkotlinx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
-    
-  condition:
-    is_dex and 
-    dex.header.class_defs_size >= 50 and
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short)) and
-    (#three_char_class - #legitimate_short) > 15 and
-    (#three_char_class - #legitimate_short) * 3 > 
-    (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
-}
-
-rule massive_obf_method4_single_char_methods : obfuscator
-{
-  meta:
-    description = "Method 4: High ratio of single character methods relative to logical classes (25%+)"
-    author = "APKiD Debug Analysis"
-    method = "single_char_methods"
-    
-  strings:
-    // Single character method names
+    // Single character method names (more specific pattern)
     $single_method = { 00 01 (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 00 }  // Single lowercase letter method names
     
-    // SDK package exclusions
+    // SDK package exclusions - count only in class definition context with precise patterns
     $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
     $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
     $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
     $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
@@ -850,78 +729,88 @@ rule massive_obf_method4_single_char_methods : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $ro_class = /\x00[\x02-\x7F]Lro\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $view_class = /\x00[\x02-\x7F]Lview\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $persist_class = /\x00[\x02-\x7F]Lpersist\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $sun_class = /\x00[\x02-\x7F]Lsun\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $guava_class = /\x00[\x02-\x7F]Lguava\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $vnd_android_class = /\x00[\x02-\x7F]Lvnd\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $schemas_android_class = /\x00[\x02-\x7F]Lschemas\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $in_collections_class = /\x00[\x02-\x7F]Lin\/collections\/[a-zA-Z0-9\$\/_-]+;\x00/
+    $media_class = /\x00[\x02-\x7F]Lmedia\/[a-zA-Z0-9\$\/_-]+;\x00/
+    
+    // Common legitimate short class patterns that should be excluded (2-letter and 3-letter)
     $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 
-    dex.header.class_defs_size >= 50 and
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short)) and
-    #single_method > 30 and
-    #single_method * 4 > 
-    (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short)
-}
-
-rule massive_obf_method5_extreme_combined : obfuscator
-{
-  meta:
-    description = "Method 5: Extreme obfuscation - combined single+two+three char classes > 33% of logical classes"
-    author = "APKiD Debug Analysis"
-    method = "extreme_combined"
+    dex.header.class_defs_size >= 50 and  // Require at least 50 classes to avoid false positives on small APKs
     
-  strings:
-    // Class-based patterns only (no string patterns)
-    $single_class_simple = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La;" through "Lz;"
-    $single_class_package = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 3B 00 }  // "La/b;"
-    $single_class_complex = { 4C (61|62|63|64|65|66|67|68|69|6A|6B|6C|6D|6E|6F|70|71|72|73|74|75|76|77|78|79|7A) 2F [1-50] 3B 00 }  // "La/b/c/d;"
+    // Calculate logical classes (exclude SDK packages and legitimate short patterns)
+    // FIX: Use authoritative DEX header count instead of YARA pattern count for consistency
+    (dex.header.class_defs_size > (#google_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #ro_class + #view_class + #persist_class + #sun_class + #guava_class + #vnd_android_class + #schemas_android_class + #in_collections_class + #media_class + #legitimate_short)) and
     
-    $two_char_class = { 00 ?? 4C ?? ?? 2F ?? ?? 3B 00 }  // L??/??;
-    $three_char_class = { 00 ?? 4C ?? ?? ?? 2F ?? ?? ?? 3B 00 }  // L???/???;
-    
-    // SDK package exclusions
-    $google_class = /\x00[\x02-\x7F]Lcom\/google\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $com_android_class = /\x00[\x02-\x7F]Lcom\/android\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $android_class = /\x00[\x02-\x7F]Landroid\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $androidx_class = /\x00[\x02-\x7F]Landroidx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlin_class = /\x00[\x02-\x7F]Lkotlin\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $java_class = /\x00[\x02-\x7F]Ljava\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $kotlinx_class = /\x00[\x02-\x7F]Lkotlinx\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
-    
-  condition:
-    is_dex and 
-    dex.header.class_defs_size >= 50 and
-    // Safety check to prevent negative values - need substantial logical classes
-    (dex.header.class_defs_size > (#google_class + #com_android_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #legitimate_short + 50)) and
-    
-    // Class-based obfuscation detection only
-    ((#single_class_simple + #single_class_package + #single_class_complex +
-      (#two_char_class - #legitimate_short) +
-      (#three_char_class - #legitimate_short)) > 15) and
-    
-    // Combined class obfuscation patterns represent significant portion (33%+) of logical classes
-    ((#single_class_simple + #single_class_package + #single_class_complex +
-      (#two_char_class - #legitimate_short) +
-      (#three_char_class - #legitimate_short)) * 3 > 
-     (dex.header.class_defs_size - #google_class - #com_android_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #legitimate_short))
-}
-
-// Unified rule that matches any of the individual methods (equivalent to original)
-rule massive_name_obfuscation : obfuscator
-{
-  meta:
-    description = "massive name obfuscation (unified debug version - matches any individual method)"
-    author = "APKiD Debug Analysis"
-    
-  condition:
-    massive_obf_method1_single_char_strings or 
-    massive_obf_method2_single_char_classes or 
-    massive_obf_method3_two_char_classes or 
-    massive_obf_method3b_three_char_classes or 
-    massive_obf_method4_single_char_methods or 
-    massive_obf_method5_extreme_combined
+    (
+      // Calculate obfuscation ratio based on LOGICAL CLASSES ONLY
+      // logical_classes = total_classes - sdk_classes - legitimate_short_classes
+      // obfuscated_classes = short_strings + single_classes + two_char_classes (that are not SDK/legitimate)
+      
+      // Method 1: High ratio of single character strings in logical classes
+      (
+        (#short_a + #short_b + #short_c + #short_d + #short_e) > 20 and
+        (#short_a + #short_b + #short_c + #short_d + #short_e) * 3 > 
+        (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short)
+        // At least 33% of logical classes have single-char string patterns
+      ) or
+      
+      // Method 2: High ratio of single character class names in logical classes - enhanced detection
+      (
+        (#single_class_simple + #single_class_package + #single_class_complex) > 10 and
+        (#single_class_simple + #single_class_package + #single_class_complex) * 2 > 
+        (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short)
+        // At least 50% of logical classes are single-char class names (any pattern)
+      ) or
+      
+      // Method 3: High ratio of two-character classes in logical classes (excluding legitimate ones)
+      (
+        (#two_char_class - #legitimate_short) > 15 and
+        (#two_char_class - #legitimate_short) * 2 > 
+        (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short)
+        // At least 50% of logical classes are two-char obfuscated classes
+      ) or
+      
+      // Method 3b: High ratio of three-character classes in logical classes (excluding legitimate ones)
+      (
+        (#three_char_class - #legitimate_short) > 15 and
+        (#three_char_class - #legitimate_short) * 3 > 
+        (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short)
+        // At least 33% of logical classes are three-char obfuscated classes
+      ) or
+      
+      // Method 4: High ratio of single character methods relative to logical classes
+      (
+        #single_method > 30 and
+        #single_method * 4 > 
+        (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short)
+        // More single-char methods than 25% of logical classes (indicating heavy method obfuscation)
+      ) or
+      
+      // Method 5: Extreme obfuscation - most logical classes are heavily obfuscated
+      (
+        // Calculate logical classes with safety check to prevent negative values
+        (dex.header.class_defs_size > (#google_class + #android_class + #androidx_class + #kotlin_class + #java_class + #kotlinx_class + #dalvik_class + #org_class + #retrofit2_class + #ro_class + #view_class + #persist_class + #sun_class + #guava_class + #vnd_android_class + #schemas_android_class + #in_collections_class + #media_class + #legitimate_short + 50)) and
+        
+        // Enhanced obfuscation detection including comprehensive single class patterns
+        ((#short_a + #short_b + #short_c + #short_d + #short_e + 
+          #single_class_simple + #single_class_package + #single_class_complex) > 20) and
+        
+        // Ensure obfuscated patterns represent significant portion of logical classes
+        ((#short_a + #short_b + #short_c + #short_d + #short_e + 
+          #single_class_simple + #single_class_package + #single_class_complex) * 3 > 
+         (dex.header.class_defs_size - #google_class - #android_class - #androidx_class - #kotlin_class - #java_class - #kotlinx_class - #dalvik_class - #org_class - #retrofit2_class - #ro_class - #view_class - #persist_class - #sun_class - #guava_class - #vnd_android_class - #schemas_android_class - #in_collections_class - #media_class - #legitimate_short))
+        // At least 33% of logical classes show clear obfuscation patterns (enhanced detection)
+      )
+    )
 }
 
 

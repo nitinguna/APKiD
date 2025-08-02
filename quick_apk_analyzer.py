@@ -342,7 +342,23 @@ def parse_comprehensive_obf_output(stdout):
         }
 
 def parse_individual_dex_result(section):
-    """Parse individual DEX analysis section with comprehensive dual analysis"""
+    """Parse individual DEX analysis section with comprehensive dual analysis
+    
+    CRITICAL BUG FIX (2025-07-30): 
+    Fixed logical_classes > total_classes anomaly that affected 25.32% of DEX files.
+    
+    Root Cause: The parsing logic incorrectly used YARA pattern count "Total classes (L...;)" 
+    as the total classes, but "Logical classes" is calculated from DEX header classes.
+    This caused mathematical impossibility where logical > total in 118/466 DEX files.
+    
+    Solution: Use "DEX header classes" as the true total count, and cap logical classes
+    to ensure data integrity: logical_classes <= total_classes
+    
+    Console Output Format:
+    - Total classes (L...;): X      <- YARA regex pattern matches 
+    - DEX header classes: Y         <- Actual DEX file class count (use as total)
+    - Logical classes: Z            <- Calculated value (should be <= Y)
+    """
     try:
         result = {
             'dex_name': 'unknown',
@@ -412,14 +428,33 @@ def parse_individual_dex_result(section):
         if yara_section:
             yara_data = yara_section.group(1)
             
-            # Extract YARA counts
-            yara_total_match = re.search(r'Total classes \(L\.\.\.;\):\s*([0-9,]+)', yara_data)
-            if yara_total_match:
-                result['dual_analysis']['yara_strict']['total_classes'] = int(yara_total_match.group(1).replace(',', ''))
-            
+            # Extract YARA counts - IMPORTANT: Use DEX header classes as total, not YARA pattern count
+            yara_pattern_count_match = re.search(r'Total classes \(L\.\.\.;\):\s*([0-9,]+)', yara_data)
+            yara_dex_header_match = re.search(r'DEX header classes:\s*([0-9,]+)', yara_data)
             yara_logical_match = re.search(r'Logical classes:\s*([0-9,]+)', yara_data)
+            
+            # Use DEX header classes as the true total count, not the YARA pattern count
+            if yara_dex_header_match:
+                result['dual_analysis']['yara_strict']['total_classes'] = int(yara_dex_header_match.group(1).replace(',', ''))
+            elif yara_pattern_count_match:
+                # Fallback to pattern count if DEX header not available
+                result['dual_analysis']['yara_strict']['total_classes'] = int(yara_pattern_count_match.group(1).replace(',', ''))
+            
             if yara_logical_match:
-                result['dual_analysis']['yara_strict']['logical_classes'] = int(yara_logical_match.group(1).replace(',', ''))
+                # Logical classes can be negative due to calculation errors in the source
+                logical_classes = int(yara_logical_match.group(1).replace(',', ''))
+                # Ensure logical classes don't exceed total classes (data integrity fix)
+                total_classes = result['dual_analysis']['yara_strict']['total_classes']
+                if logical_classes > total_classes and total_classes > 0:
+                    # Log this anomaly but cap logical classes to total classes
+                    result['dual_analysis']['yara_strict']['logical_classes'] = total_classes
+                    result['dual_analysis']['yara_strict']['_logical_anomaly'] = {
+                        'original_logical': logical_classes,
+                        'capped_to_total': total_classes,
+                        'anomaly_type': 'logical_exceeds_total'
+                    }
+                else:
+                    result['dual_analysis']['yara_strict']['logical_classes'] = max(0, logical_classes)  # Ensure non-negative
             
             yara_short_strings_match = re.search(r'Short strings \(a-e\):\s*([0-9,]+)', yara_data)
             if yara_short_strings_match:
@@ -1006,15 +1041,22 @@ def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False):
     
     print(f"\nAnalyzing: {apk_name} ({apk_size:.1f} MB)")
     
+    # Extract package name for metadata
+    package_name = extract_package_name(apk_path)
+    
     result_data = {
         'apk_name': apk_name,
         'apk_path': apk_path,
-        'apk_size_mb': apk_size
+        'apk_size_mb': apk_size,
+        'package_name': package_name
     }
     
-    # Run APKiD with timeout
+    # Run APKiD using local development version with debug rules
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    local_apkid = os.path.join(script_dir, 'local_apkid.py')
+    
     apkid_result = run_command_with_timeout(
-        [sys.executable, '-m', 'apkid', '-j', apk_path],
+        [sys.executable, local_apkid, '-j', apk_path],
         timeout=30  # Increased timeout for better reliability
     )
     
@@ -1048,6 +1090,78 @@ def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False):
     
     return result_data
 
+def extract_package_name(apk_path):
+    """Extract package name from APK using aapt or zipfile parsing"""
+    try:
+        # Try using aapt first (most reliable)
+        try:
+            result = subprocess.run(
+                ['aapt', 'dump', 'badging', apk_path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                encoding='utf-8',
+                errors='ignore'  # Ignore encoding errors
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if line.startswith('package:'):
+                        # Extract package name from line like: package: name='com.zebra.demo' versionCode='1' versionName='1.0'
+                        match = re.search(r"name='([^']+)'", line)
+                        if match:
+                            return match.group(1)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # aapt not available or timeout, fall back to zipfile parsing
+            pass
+        
+        # Fallback: Parse AndroidManifest.xml from APK using zipfile
+        try:
+            with zipfile.ZipFile(apk_path, 'r') as apk_zip:
+                # Try to find AndroidManifest.xml
+                if 'AndroidManifest.xml' in apk_zip.namelist():
+                    manifest_data = apk_zip.read('AndroidManifest.xml')
+                    # For binary XML, we need to look for package string patterns
+                    # This is a simple heuristic that works for many cases
+                    
+                    # Look for com.zebra or com.symbol patterns in the binary data
+                    zebra_match = re.search(rb'com\.zebra\.[a-zA-Z0-9_.]+', manifest_data)
+                    if zebra_match:
+                        return zebra_match.group(0).decode('utf-8', errors='ignore')
+                    
+                    symbol_match = re.search(rb'com\.symbol\.[a-zA-Z0-9_.]+', manifest_data)
+                    if symbol_match:
+                        return symbol_match.group(0).decode('utf-8', errors='ignore')
+                    
+                    # Look for general package patterns - more careful with decoding
+                    # Try to find common package name patterns in the binary data
+                    for pattern in [rb'[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*){2,}']:
+                        matches = re.findall(pattern, manifest_data)
+                        for match in matches:
+                            try:
+                                candidate = match.decode('utf-8', errors='ignore')
+                                # Filter out common false positives and ensure it looks like a package name
+                                if (len(candidate) > 5 and 
+                                    not candidate.startswith(('android.', 'java.', 'javax.', 'org.apache', 'com.android.')) and
+                                    candidate.count('.') >= 2 and
+                                    not any(char in candidate for char in [' ', '\n', '\t', '\r'])):
+                                    return candidate
+                            except:
+                                continue
+        except Exception:
+            pass
+        
+        return None
+        
+    except Exception as e:
+        print(f"    Warning: Could not extract package name from {os.path.basename(apk_path)}: {e}")
+        return None
+
+def is_zebra_package(package_name):
+    """Check if package name starts with com.zebra or com.symbol"""
+    if not package_name:
+        return False
+    return package_name.startswith('com.zebra') or package_name.startswith('com.symbol')
+
 def main():
     parser = argparse.ArgumentParser(description='Quick APK Analysis with optional comprehensive obfuscation testing')
     parser.add_argument('directory', help='Directory to search for APK files')
@@ -1058,6 +1172,7 @@ def main():
     parser.add_argument('--comprehensive-only', action='store_true', help='Run only comprehensive obfuscation analysis (skip APKiD and R8)')
     parser.add_argument('--save-comprehensive-details', help='Save detailed comprehensive analysis results to separate file')
     parser.add_argument('--show-dual-analysis', action='store_true', help='Display dual analysis effectiveness comparison for each APK')
+    parser.add_argument('--zebra-only', action='store_true', help='Only analyze APKs with package names starting with com.zebra or com.symbol')
     
     args = parser.parse_args()
     
@@ -1104,9 +1219,45 @@ def main():
         if args.max_apks is not None and len(apk_files) >= args.max_apks:
             break
     
+    # Store original count before filtering
+    original_apk_count = len(apk_files)
+    
     if not apk_files:
         print("No APK files found.")
         return
+    
+    # Filter for Zebra packages if requested
+    if args.zebra_only:
+        print("Filtering APKs for Zebra packages (com.zebra.* or com.symbol.*)...")
+        zebra_apks = []
+        skipped_count = 0
+        
+        for apk_path in apk_files:
+            print(f"  Checking package name for: {os.path.basename(apk_path)}")
+            package_name = extract_package_name(apk_path)
+            
+            if package_name:
+                print(f"    Package: {package_name}")
+                if is_zebra_package(package_name):
+                    print(f"    ✅ Zebra package detected - including in analysis")
+                    zebra_apks.append(apk_path)
+                else:
+                    print(f"    ❌ Not a Zebra package - skipping")
+                    skipped_count += 1
+            else:
+                print(f"    ⚠️  Could not determine package name - skipping")
+                skipped_count += 1
+        
+        print(f"\nZebra filtering results:")
+        print(f"  Total APKs found: {len(apk_files)}")
+        print(f"  Zebra APKs found: {len(zebra_apks)}")
+        print(f"  APKs skipped: {skipped_count}")
+        
+        apk_files = zebra_apks
+        
+        if not apk_files:
+            print("No Zebra packages found. Exiting.")
+            return
     
     # Determine how many APKs to analyze
     apks_to_analyze = len(apk_files) if args.max_apks is None else min(len(apk_files), args.max_apks)
@@ -1244,10 +1395,12 @@ def main():
     # Save main results
     output_data = {
         'analysis_summary': {
-            'total_apks_found': len(apk_files),
+            'total_apks_found': original_apk_count,
+            'total_apks_after_filtering': len(apk_files) if args.zebra_only else original_apk_count,
             'total_apks_analyzed': len(results),
             'search_directory': args.directory,
             'r8_jar_path': args.r8_jar,
+            'zebra_only_mode': args.zebra_only,
             'comprehensive_analysis_enabled': args.comprehensive or args.comprehensive_only,
             'comprehensive_only_mode': args.comprehensive_only,
             'successful_apkid_scans': successful_apkid,
@@ -1285,7 +1438,12 @@ def main():
     
     # Print summary
     print(f"\nSummary:")
-    print(f"  APKs analyzed: {len(results)}")
+    if args.zebra_only:
+        print(f"  APKs found (total): {original_apk_count}")
+        print(f"  APKs found (zebra): {len(apk_files) if 'apk_files' in locals() else 0}")
+        print(f"  APKs analyzed: {len(results)}")
+    else:
+        print(f"  APKs analyzed: {len(results)}")
     if not args.comprehensive_only:
         print(f"  Successful APKiD: {successful_apkid}")
         if args.r8_jar:

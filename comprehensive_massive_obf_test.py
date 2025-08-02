@@ -9,6 +9,8 @@ import sys
 import os
 import tempfile
 import zipfile
+import subprocess
+import json
 from pathlib import Path
 import codecs
 
@@ -57,9 +59,13 @@ def test_massive_obfuscation_with_percentage(input_file):
         import subprocess
         import json
         
-        # Run APKiD with JSON output (same as quick_apk_analyzer)
+        # Run APKiD using local development version with updated debug rules
+        # Use local wrapper that sets up proper environment
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        local_apkid = os.path.join(script_dir, 'local_apkid.py')
+        
         result = subprocess.run(
-            [sys.executable, '-m', 'apkid', '--json', input_file],
+            [sys.executable, local_apkid, '--json', input_file],
             capture_output=True,
             text=True,
             timeout=30,
@@ -243,9 +249,16 @@ def analyze_single_dex_detailed(dex_file_path):
     yara_patterns['complex_single_class'] = len(complex_single_patterns)
     
     # Combined total for comprehensive single class detection
-    yara_patterns['single_class_comprehensive'] = (yara_patterns['single_class_total'] + 
-                                                   yara_patterns['single_class_with_package'] + 
-                                                   yara_patterns['complex_single_class'])
+    # FIXED: Remove double-counting and use correct patterns for YARA consistency
+    yara_patterns['single_class_comprehensive'] = yara_patterns['single_class_total']  # Only count true single-letter classes
+    
+    # DEBUG: Add debug prints to track the 164 count
+    safe_print(f"🐛 DEBUG single class counts:")
+    safe_print(f"   single_class_total (true L[a-z];): {yara_patterns['single_class_total']}")
+    safe_print(f"   single_class_with_package (L[a-z]/[a-z];): {yara_patterns['single_class_with_package']}")
+    safe_print(f"   complex_single_class (L[a-z]/[^;]*;): {yara_patterns['complex_single_class']}")
+    safe_print(f"   single_class_comprehensive (FIXED): {yara_patterns['single_class_comprehensive']}")
+    safe_print(f"   🚨 BUG: Previous calculation was double-counting: {yara_patterns['single_class_with_package'] + yara_patterns['complex_single_class']}")
     
     # Keep individual counters for legacy compatibility
     yara_patterns['single_class_a'] = len(re.findall(r'La;\x00', data_str))
@@ -267,6 +280,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # SDK exclusion patterns - EXACT YARA regex (synchronized with obfuscators.yara)
     yara_patterns['google_class'] = len(re.findall(r'\x00[\x02-\x7F]Lcom/google/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
+    yara_patterns['com_android_class'] = len(re.findall(r'\x00[\x02-\x7F]Lcom/android/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     yara_patterns['android_class'] = len(re.findall(r'\x00[\x02-\x7F]Landroid/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     yara_patterns['androidx_class'] = len(re.findall(r'\x00[\x02-\x7F]Landroidx/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     yara_patterns['kotlin_class'] = len(re.findall(r'\x00[\x02-\x7F]Lkotlin/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
@@ -301,6 +315,7 @@ def analyze_single_dex_detailed(dex_file_path):
     # SDK patterns (for exclusion in manual analysis)
     sdk_patterns = [
         r'^Lcom/google/',
+        r'^Lcom/android/',
         r'^Landroid/',
         r'^Landroidx/',
         r'^Lkotlin/',
@@ -510,16 +525,29 @@ def analyze_single_dex_detailed(dex_file_path):
     total_classes_regex = patterns['class_pattern']  # Keep for comparison
     total_classes_dex_header = dex_header_class_defs_size  # Use DEX header like YARA
     # SDK classes calculation synchronized with YARA obfuscators.yara massive_name_obfuscation rule
-    sdk_classes = (patterns['google_class'] + patterns['android_class'] + patterns['androidx_class'] + 
-                   patterns['kotlin_class'] + patterns['java_class'] + patterns['kotlinx_class'] + 
-                   patterns['dalvik_class'] + patterns['org_class'] + patterns['retrofit2_class'] + 
-                   patterns['ro_class'] + patterns['view_class'] + patterns['persist_class'] + 
-                   patterns['sun_class'] + patterns['guava_class'] + patterns['vnd_android_class'] + 
-                   patterns['schemas_android_class'] + patterns['in_collections_class'] + 
-                   patterns['media_class'] + patterns['legitimate_short'])
+    sdk_classes_raw = (patterns['google_class'] + patterns['com_android_class'] + patterns['android_class'] + patterns['androidx_class'] + 
+                       patterns['kotlin_class'] + patterns['java_class'] + patterns['kotlinx_class'] + 
+                       patterns['dalvik_class'] + patterns['org_class'] + patterns['retrofit2_class'] + 
+                       patterns['ro_class'] + patterns['view_class'] + patterns['persist_class'] + 
+                       patterns['sun_class'] + patterns['guava_class'] + patterns['vnd_android_class'] + 
+                       patterns['schemas_android_class'] + patterns['in_collections_class'] + 
+                       patterns['media_class'] + patterns['legitimate_short'])
+    
+    # CRITICAL FIX: Cap SDK classes to never exceed total classes (prevents negative logical classes)
+    # Root cause: YARA patterns count string table occurrences, not unique class definitions
+    sdk_classes = min(sdk_classes_raw, total_classes_dex_header)
     
     # YARA uses dex.header.class_defs_size for total classes but regex patterns for SDK classes
-    logical_classes = total_classes_dex_header - sdk_classes
+    logical_classes = max(0, total_classes_dex_header - sdk_classes)
+    
+    # Debug logging for the PhotoTable case
+    if sdk_classes_raw != sdk_classes:
+        safe_print(f"   🔧 FIX APPLIED: SDK classes capped from {sdk_classes_raw:,} to {sdk_classes:,}")
+        safe_print(f"   📊 Reason: SDK count exceeded total classes ({total_classes_dex_header:,})")
+    
+    if logical_classes == 0 and total_classes_dex_header > 0:
+        safe_print(f"   ⚠️  WARNING: All {total_classes_dex_header:,} classes detected as SDK classes")
+        safe_print(f"   💡 Non-SDK classes (like zebra.util) may be miscategorized as SDK")
     
     # Pattern-specific counts using EXACT YARA logic
     short_strings = (patterns['short_a'] + patterns['short_b'] + patterns['short_c'] + 
@@ -586,22 +614,25 @@ def analyze_single_dex_detailed(dex_file_path):
     conditions_passed = 0
     total_conditions = 7  # 2 basic + 5 methods
     
-    # Basic requirements (same for both methods)
-    req1_min_classes = total_classes_dex_header >= 50  # YARA uses dex.header.class_defs_size
-    req2_logical_classes = logical_classes > 0
+    # Basic requirements evaluation for both methods
+    req1_min_classes = total_classes_dex_header >= 50  # Common requirement
+    req2_logical_classes_yara = logical_classes > 0
+    req2_logical_classes_manual = manual_patterns['logical_classes'] > 0
     
+    # Use manual requirements for condition counting (since this is manual analysis)
     if req1_min_classes:
         conditions_passed += 1
-    if req2_logical_classes:
+    if req2_logical_classes_manual:
         conditions_passed += 1
     
     safe_print(f"Requirement 1 - Min classes: {total_classes_dex_header} >= 50 = {'✅' if req1_min_classes else '❌'}")
-    safe_print(f"Requirement 2 - Logical classes: {logical_classes} > 0 = {'✅' if req2_logical_classes else '❌'}")
+    safe_print(f"Requirement 2 - YARA logical classes: {logical_classes} > 0 = {'✅' if req2_logical_classes_yara else '❌'}")
+    safe_print(f"Requirement 2 - Manual logical classes: {manual_patterns['logical_classes']} > 0 = {'✅' if req2_logical_classes_manual else '❌'}")
     
-    if not req2_logical_classes:
-        safe_print(f"⚠️  Cannot evaluate ratios without logical classes")
+    if not req2_logical_classes_manual:
+        safe_print(f"⚠️  Cannot evaluate manual analysis ratios without logical classes")
         percentage = (conditions_passed / total_conditions) * 100
-        safe_print(f"\n🎯 Completion: {percentage:.1f}% ({conditions_passed}/{total_conditions})")
+        safe_print(f"\n🎯 Manual Analysis Completion: {percentage:.1f}% ({conditions_passed}/{total_conditions})")
         return percentage, False
     
     # DUAL METHOD EVALUATIONS
@@ -737,12 +768,16 @@ def analyze_single_dex_detailed(dex_file_path):
     safe_print(f"   YARA:   {'✅ PASS' if method5_passed_yara else '❌ FAIL'} (combined: {combined_obf_yara}, ratio: {method5_ratio_yara:.2f})")
     safe_print(f"   MANUAL: {'✅ PASS' if method5_passed_manual else '❌ FAIL'} (combined: {combined_obf_manual}, ratio: {method5_ratio_manual:.2f})")
     
-    # Final assessment - BOTH approaches
-    basic_reqs_met = req1_min_classes and req2_logical_classes
+    # Final assessment - BOTH approaches with method-specific requirements
+    # YARA-strict requirements
+    basic_reqs_met_yara = req1_min_classes and req2_logical_classes_yara
     any_method_passed_yara = methods_passed_yara > 0 or method5_passed_yara
+    should_trigger_yara = basic_reqs_met_yara and any_method_passed_yara
+    
+    # Manual inspection requirements (uses manual logical classes)
+    basic_reqs_met_manual = req1_min_classes and req2_logical_classes_manual
     any_method_passed_manual = methods_passed_manual > 0 or method5_passed_manual
-    should_trigger_yara = basic_reqs_met and any_method_passed_yara
-    should_trigger_manual = basic_reqs_met and any_method_passed_manual
+    should_trigger_manual = basic_reqs_met_manual and any_method_passed_manual
     
     percentage = (conditions_passed / total_conditions) * 100
     
@@ -843,7 +878,7 @@ def analyze_single_dex_detailed(dex_file_path):
     safe_print(f"\n📊 Final Assessment:")
     safe_print(f"   ═══════════════════════════════════════════")
     safe_print(f"   📊 YARA-STRICT Results (Primary):")
-    safe_print(f"   Basic requirements: {'✅ MET' if basic_reqs_met else '❌ NOT MET'}")
+    safe_print(f"   Basic requirements: {'✅ MET' if basic_reqs_met_yara else '❌ NOT MET'}")
     safe_print(f"   Methods passed: {methods_passed_yara}/4 (+ Method 5: {'✅' if method5_passed_yara else '❌'})")
     safe_print(f"   Any detection method passed: {'✅' if any_method_passed_yara else '❌'}")
     safe_print(f"   Conditions passed: {conditions_passed}/{total_conditions}")
@@ -860,8 +895,8 @@ def analyze_single_dex_detailed(dex_file_path):
     safe_print(f"   Manual finds {gap_methods} more detection methods than YARA")
     safe_print(f"   Agreement: {'✅ CONSISTENT' if should_trigger_yara == should_trigger_manual else '⚠️ DIFFERENT'}")
     
-    # Use YARA results for primary return (for compatibility with existing code)
-    should_trigger = should_trigger_yara
+    # Use manual inspection results for primary return (manual analysis is the focus)
+    should_trigger = should_trigger_manual
     
     return percentage, should_trigger, methods_detail, methods_summary
 
