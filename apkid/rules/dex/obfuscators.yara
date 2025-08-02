@@ -751,7 +751,7 @@ rule massive_obf_method2_single_char_classes : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
+    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 
@@ -784,7 +784,7 @@ rule massive_obf_method3_two_char_classes : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
+    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 
@@ -817,7 +817,7 @@ rule massive_obf_method3b_three_char_classes : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
+    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 
@@ -850,7 +850,7 @@ rule massive_obf_method4_single_char_methods : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
+    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 
@@ -888,7 +888,7 @@ rule massive_obf_method5_extreme_combined : obfuscator
     $dalvik_class = /\x00[\x02-\x7F]Ldalvik\/[a-zA-Z0-9\$\/_-]+;\x00/
     $org_class = /\x00[\x02-\x7F]Lorg\/[a-zA-Z0-9\$\/_-]+;\x00/
     $retrofit2_class = /\x00[\x02-\x7F]Lretrofit2\/[a-zA-Z0-9\$\/_-]+;\x00/
-    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
+    $legitimate_short = /L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)\//
     
   condition:
     is_dex and 

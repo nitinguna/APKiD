@@ -301,7 +301,7 @@ def analyze_single_dex_detailed(dex_file_path):
     yara_patterns['media_class'] = len(re.findall(r'\x00[\x02-\x7F]Lmedia/[a-zA-Z0-9\$\/_-]+;\x00', data_str))
     
     # Legitimate short pattern - EXACT YARA regex
-    yara_patterns['legitimate_short'] = len(re.findall(r'L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)/', data_str))
+    yara_patterns['legitimate_short'] = len(re.findall(r'L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui|jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|xml|sql|tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp|ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex|oat|odex|vdex|art)/', data_str))
     
     # =============================
     # METHOD 2: MANUAL INSPECTION patterns (broader, no strict DEX formatting)
@@ -339,7 +339,7 @@ def analyze_single_dex_detailed(dex_file_path):
     
     # Legitimate short patterns (not obfuscated)
     legitimate_patterns = [
-        r'^L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|app|net|xml|api|gui)/',
+        r'^L(io|os|ui|vm|db|js|sx|tv|ai|ar|vr|3d|r|app|net|xml|api|gui)/',
         r'^L(jwt|ssl|tls|rsa|aes|des|md5|sha|url|uri|css|dom|sql)/',
         r'^L(tcp|udp|ftp|ssh|git|svn|cvs|yml|pdf|jpg|png|gif|bmp)/',
         r'^L(ico|zip|tar|rar|log|tmp|bin|lib|jar|war|ear|dex)/',
