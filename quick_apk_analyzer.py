@@ -603,6 +603,8 @@ def parse_individual_dex_result(section):
                 'manual_inspection': {
                     'total_classes': 0,
                     'logical_classes': 0,
+                    'non_discovered_sdk_classes': 0,
+                    'zebra_symbol_classes': 0,
                     'short_strings': 0,
                     'single_classes': 0,
                     'two_digit_classes': 0,
@@ -635,6 +637,24 @@ def parse_individual_dex_result(section):
         size_match = re.search(r'DEX file size:\s*([0-9,]+)\s*bytes', section)
         if size_match:
             result['dex_size_bytes'] = int(size_match.group(1).replace(',', ''))
+        
+        # Extract Zebra/Symbol classes from main analysis section (before YARA-STRICT)
+        main_analysis_section = re.search(r'📊 Manual analysis - using zebra_sdk_discovery\.py logic:(.*?)📈 Raw Pattern Counts:', section, re.DOTALL)
+        if main_analysis_section:
+            main_data = main_analysis_section.group(1)
+            
+            # Extract Zebra/Symbol classes count from main section
+            main_zebra_symbol_match = re.search(r'Zebra/Symbol classes:\s*([0-9,]+)', main_data)
+            if main_zebra_symbol_match:
+                zebra_symbol_count = int(main_zebra_symbol_match.group(1).replace(',', ''))
+                # Store this for later use in manual inspection section
+                result['_main_zebra_symbol_classes'] = zebra_symbol_count
+            
+            # Extract non-discovered SDK classes from main section
+            main_non_discovered_match = re.search(r'Non-discovered SDK classes:\s*([0-9,]+)', main_data)
+            if main_non_discovered_match:
+                non_discovered_count = int(main_non_discovered_match.group(1).replace(',', ''))
+                result['_main_non_discovered_sdk_classes'] = non_discovered_count
         
         # Extract YARA-STRICT Analysis data
         yara_section = re.search(r'📊 YARA-STRICT Analysis.*?───────────────────────────────────────────────(.*?)📋 MANUAL INSPECTION Analysis', section, re.DOTALL)
@@ -712,6 +732,22 @@ def parse_individual_dex_result(section):
             manual_logical_match = re.search(r'Logical classes analyzed:\s*([0-9,]+)', manual_data)
             if manual_logical_match:
                 result['dual_analysis']['manual_inspection']['logical_classes'] = int(manual_logical_match.group(1).replace(',', ''))
+            
+            # Extract non-discovered SDK classes count
+            manual_non_discovered_match = re.search(r'Non-discovered SDK classes:\s*([0-9,]+)', manual_data)
+            if manual_non_discovered_match:
+                result['dual_analysis']['manual_inspection']['non_discovered_sdk_classes'] = int(manual_non_discovered_match.group(1).replace(',', ''))
+            elif '_main_non_discovered_sdk_classes' in result:
+                # Use value from main analysis section if not found in manual section
+                result['dual_analysis']['manual_inspection']['non_discovered_sdk_classes'] = result['_main_non_discovered_sdk_classes']
+            
+            # Extract Zebra/Symbol classes count
+            manual_zebra_symbol_match = re.search(r'Zebra/Symbol classes:\s*([0-9,]+)', manual_data)
+            if manual_zebra_symbol_match:
+                result['dual_analysis']['manual_inspection']['zebra_symbol_classes'] = int(manual_zebra_symbol_match.group(1).replace(',', ''))
+            elif '_main_zebra_symbol_classes' in result:
+                # Use value from main analysis section if not found in manual section
+                result['dual_analysis']['manual_inspection']['zebra_symbol_classes'] = result['_main_zebra_symbol_classes']
             
             manual_short_strings_match = re.search(r'Short strings \(a-e\):\s*([0-9,]+)', manual_data)
             if manual_short_strings_match:
@@ -877,6 +913,12 @@ def parse_individual_dex_result(section):
         result['methods_passed'] = result['dual_analysis']['yara_strict']['methods_passed']
         result['methods_failed'] = result['dual_analysis']['yara_strict']['methods_failed']
         
+        # Clean up temporary variables
+        if '_main_zebra_symbol_classes' in result:
+            del result['_main_zebra_symbol_classes']
+        if '_main_non_discovered_sdk_classes' in result:
+            del result['_main_non_discovered_sdk_classes']
+        
         return result
         
     except Exception as e:
@@ -917,6 +959,8 @@ def create_final_dual_analysis_summary(detailed_results):
                 'manual_inspection': {
                     'total_classes': 0,
                     'logical_classes': 0,
+                    'non_discovered_sdk_classes': 0,
+                    'zebra_symbol_classes': 0,
                     'short_strings': 0,
                     'single_classes': 0,
                     'two_digit_classes': 0,
@@ -999,6 +1043,8 @@ def create_final_dual_analysis_summary(detailed_results):
             manual_data = dual_analysis['manual_inspection']
             final_summary['aggregated_analysis']['manual_inspection']['total_classes'] += manual_data.get('total_classes', 0)
             final_summary['aggregated_analysis']['manual_inspection']['logical_classes'] += manual_data.get('logical_classes', 0)
+            final_summary['aggregated_analysis']['manual_inspection']['non_discovered_sdk_classes'] += manual_data.get('non_discovered_sdk_classes', 0)
+            final_summary['aggregated_analysis']['manual_inspection']['zebra_symbol_classes'] += manual_data.get('zebra_symbol_classes', 0)
             final_summary['aggregated_analysis']['manual_inspection']['short_strings'] += manual_data.get('short_strings', 0)
             final_summary['aggregated_analysis']['manual_inspection']['single_classes'] += manual_data.get('single_classes', 0)
             final_summary['aggregated_analysis']['manual_inspection']['two_digit_classes'] += manual_data.get('two_digit_classes', 0)
@@ -1034,6 +1080,9 @@ def create_final_dual_analysis_summary(detailed_results):
                 'manual_trigger': manual_data.get('should_trigger', False),
                 'yara_methods_passed': len(yara_data.get('methods_passed', [])),
                 'manual_methods_passed': len(manual_data.get('methods_passed', [])),
+                'logical_classes': manual_data.get('logical_classes', 0),
+                'non_discovered_sdk_classes': manual_data.get('non_discovered_sdk_classes', 0),
+                'zebra_symbol_classes': manual_data.get('zebra_symbol_classes', 0),
                 'agreement': dual_analysis['effectiveness_gap'].get('agreement', 'UNKNOWN'),
                 'two_digit_ratio': dual_analysis['effectiveness_gap'].get('two_digit_ratio', 0.0)
             })

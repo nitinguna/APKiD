@@ -432,6 +432,59 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
     all_classes = re.findall(r'L+[a-zA-Z0-9\$_/]+;', data_str)
     unique_classes = list(set(all_classes))
     
+    # PHASE 1: OBFUSCATION PATTERN ANALYSIS (count patterns from ALL classes for rule detection)
+    # This analysis counts obfuscation patterns without filtering - needed for obfuscation rules
+    obfuscation_single_classes = []
+    obfuscation_double_classes = []
+    obfuscation_triple_classes = []
+    
+    for class_name in unique_classes:
+        # Remove 'L' prefix and ';' suffix
+        clean_name = class_name[1:-1] if class_name.startswith('L') and class_name.endswith(';') else class_name
+        
+        # Analyze different patterns for obfuscation detection
+        if '/' in clean_name:
+            # Package structure: analyze each part for single characters
+            parts = clean_name.split('/')
+            
+            # Count single character parts (any part that is exactly 1 character)
+            single_char_parts = [part for part in parts if len(part) == 1 and part.isalpha()]
+            if single_char_parts:
+                obfuscation_single_classes.append(class_name)
+            
+            # Check for two-digit patterns like: ab/cd, xy/zw (EXACTLY 2 parts, each 2 chars)
+            if (len(parts) == 2 and 
+                len(parts[0]) == 2 and len(parts[1]) == 2 and
+                parts[0].isalpha() and parts[1].isalpha()):
+                obfuscation_double_classes.append(class_name)
+            
+            # Check for three-digit patterns like: abc/def, xyz/uvw (EXACTLY 2 parts, each 3 chars)
+            elif (len(parts) == 2 and 
+                  len(parts[0]) == 3 and len(parts[1]) == 3 and
+                  parts[0].isalpha() and parts[1].isalpha()):
+                obfuscation_triple_classes.append(class_name)
+        
+        else:
+            # No package structure - analyze direct class name
+            if len(clean_name) == 2 and clean_name.isalpha():
+                obfuscation_double_classes.append(class_name)
+            elif len(clean_name) == 3 and clean_name.isalpha():
+                obfuscation_triple_classes.append(class_name)
+            elif len(clean_name) == 1 and clean_name.isalpha():
+                obfuscation_single_classes.append(class_name)
+    
+    # Store obfuscation counts for rule analysis
+    manual_patterns['single_digit_classes'] = len(obfuscation_single_classes)
+    manual_patterns['two_digit_classes'] = len(obfuscation_double_classes)
+    manual_patterns['three_digit_classes'] = len(obfuscation_triple_classes)
+    
+    safe_print(f"   📊 Obfuscation Pattern Analysis (from {len(unique_classes):,} total classes):")
+    safe_print(f"      Single-char obfuscation patterns: {len(obfuscation_single_classes):,}")
+    safe_print(f"      Double-char obfuscation patterns: {len(obfuscation_double_classes):,}")
+    safe_print(f"      Triple-char obfuscation patterns: {len(obfuscation_triple_classes):,}")
+    
+    # PHASE 2: SDK DISCOVERY ANALYSIS (apply filtering for accurate non-discoverable SDK detection)
+    
     # SDK patterns (for exclusion in manual analysis)
     sdk_patterns = [
         r'^Lcom/google/',
@@ -557,7 +610,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
                 return True
         return False
     
-    # Helper function to check for very short classes (matches zebra_sdk_discovery.py logic)
+    # Helper function to check for very short classes (FIXED to match zebra_sdk_discovery.py logic)
     def is_very_short_class(class_name):
         """Check if class has very short (1-3 character) package or class names."""
         if not class_name.startswith('L') or not class_name.endswith(';'):
@@ -572,7 +625,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
         # Check if any package component is 1-3 characters (excluding legitimate ones)
         for part in parts:
             if len(part) <= 3:
-                # Allow some legitimate 1-3 char components
+                # Allow some legitimate 1-3 char components (EXACT MATCH to zebra_sdk_discovery.py)
                 legitimate_short_components = {
                     'io', 'os', 'ui', 'vm', 'db', 'js', 'tv', 'ai', 'ar', 'vr', '3d',
                     'www', 'ftp', 'cdn', 'aws', 'gcp', 'api', 'sdk', 'ide', 'jvm', 'jre', 'jdk',
@@ -589,7 +642,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
         
         return False
     
-    # Helper function to check for obfuscated patterns (matches zebra_sdk_discovery.py logic)
+    # Helper function to check for obfuscated patterns (FIXED to match zebra_sdk_discovery.py logic)
     def has_obfuscated_pattern(class_name):
         """Check if class appears to be obfuscated (single letters, numbers, random chars)."""
         if not class_name.startswith('L') or not class_name.endswith(';'):
@@ -598,7 +651,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
         class_path = class_name[1:-1]
         parts = class_path.split('/')
         
-        # Check for common obfuscation patterns
+        # Check for common obfuscation patterns (EXACT MATCH to zebra_sdk_discovery.py)
         for part in parts:
             # Single character components (except legitimate ones)
             if len(part) == 1 and part not in 'iorpabcdefghijklmnqstuvwxyz':
@@ -640,68 +693,61 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
         else:
             logical_classes_manual.append(class_name)
     
-    # Step 2: From logical classes, filter out app-specific classes to get non-discovered SDK classes
-    non_discovered_sdk_classes_manual = []
-    app_specific_classes_manual = []
-    
-    for class_name in logical_classes_manual:
-        if is_app_specific_class(class_name):
-            app_specific_classes_manual.append(class_name)
-        else:
-            non_discovered_sdk_classes_manual.append(class_name)
-    
-    # Debug information for the corrected calculation
-    safe_print(f"   📊 Manual analysis - corrected logical class calculation:")
-    safe_print(f"      Total unique classes: {len(unique_classes):,}")
-    safe_print(f"      SDK classes excluded: {len(sdk_classes_manual):,}")
-    safe_print(f"      Legitimate classes excluded: {len(legitimate_classes_manual):,}")
-    safe_print(f"      Very short classes excluded: {very_short_classes_filtered:,}")
-    safe_print(f"      Obfuscated classes excluded: {obfuscated_classes_filtered:,}")
-    safe_print(f"      Logical classes (clean): {len(logical_classes_manual):,}")
-    safe_print(f"      App-specific classes: {len(app_specific_classes_manual):,}")
-    safe_print(f"      Non-discovered SDK classes: {len(non_discovered_sdk_classes_manual):,}")
-    
-    # Manual analysis of logical classes for obfuscation patterns
-    manual_two_digit_classes = []
-    manual_three_digit_classes = []
-    manual_single_digit_classes = []
-    manual_short_strings = []
-    manual_single_methods = []
-    
-    for class_name in logical_classes_manual:
-        # Remove 'L' prefix and ';' suffix
-        clean_name = class_name[1:-1]
+    # Step 2: Use zebra_sdk_discovery.py to get accurate non-discoverable SDK class count
+    # Import the functions we need
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("zebra_sdk_discovery", "zebra_sdk_discovery.py")
+        zebra_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(zebra_module)
         
-        # Analyze different patterns
-        if '/' in clean_name:
-            # Package structure: analyze each part for single characters
-            parts = clean_name.split('/')
-            
-            # Count single character parts (any part that is exactly 1 character)
-            single_char_parts = [part for part in parts if len(part) == 1 and part.isalpha()]
-            if single_char_parts:
-                manual_single_digit_classes.append(class_name)
-            
-            # Check if it's a two-digit pattern like: ab/cd, xy/zw (EXACTLY 2 parts, each 2 chars)
-            if (len(parts) == 2 and 
-                len(parts[0]) == 2 and len(parts[1]) == 2 and
-                parts[0].isalpha() and parts[1].isalpha()):
-                manual_two_digit_classes.append(class_name)
-            
-            # Check if it's a three-digit pattern like: abc/def, xyz/uvw (EXACTLY 2 parts, each 3 chars)
-            elif (len(parts) == 2 and 
-                  len(parts[0]) == 3 and len(parts[1]) == 3 and
-                  parts[0].isalpha() and parts[1].isalpha()):
-                manual_three_digit_classes.append(class_name)
+        # Use the proper zebra SDK discovery logic
+        non_discovered_sdk_classes_manual, zebra_symbol_classes = zebra_module.filter_zebra_symbol_classes(logical_classes_manual)
         
-        else:
-            # No package structure - analyze direct class name
-            if len(clean_name) == 2 and clean_name.isalpha():
-                manual_two_digit_classes.append(class_name)
-            elif len(clean_name) == 3 and clean_name.isalpha():
-                manual_three_digit_classes.append(class_name)
-            elif len(clean_name) == 1 and clean_name.isalpha():
-                manual_single_digit_classes.append(class_name)
+        safe_print(f"   📊 Manual analysis - using zebra_sdk_discovery.py logic:")
+        safe_print(f"      Total unique classes: {len(unique_classes):,}")
+        safe_print(f"      SDK classes excluded: {len(sdk_classes_manual):,}")
+        safe_print(f"      Legitimate classes excluded: {len(legitimate_classes_manual):,}")
+        safe_print(f"      Very short classes excluded: {very_short_classes_filtered:,}")
+        safe_print(f"      Obfuscated classes excluded: {obfuscated_classes_filtered:,}")
+        safe_print(f"      Logical classes (clean): {len(logical_classes_manual):,}")
+        safe_print(f"      Zebra/Symbol classes: {len(zebra_symbol_classes):,}")
+        safe_print(f"      Non-discovered SDK classes: {len(non_discovered_sdk_classes_manual):,}")
+        
+    except Exception as e:
+        safe_print(f"   ⚠️ Could not import zebra_sdk_discovery.py: {e}")
+        safe_print(f"   📊 Manual analysis - fallback to simple app-specific filtering:")
+        
+        # Fallback to simple filtering if zebra_sdk_discovery is not available
+        non_discovered_sdk_classes_manual = []
+        app_specific_classes_manual = []
+        
+        for class_name in logical_classes_manual:
+            if is_app_specific_class(class_name):
+                app_specific_classes_manual.append(class_name)
+            else:
+                non_discovered_sdk_classes_manual.append(class_name)
+        
+        safe_print(f"      Total unique classes: {len(unique_classes):,}")
+        safe_print(f"      SDK classes excluded: {len(sdk_classes_manual):,}")
+        safe_print(f"      Legitimate classes excluded: {len(legitimate_classes_manual):,}")
+        safe_print(f"      Very short classes excluded: {very_short_classes_filtered:,}")
+        safe_print(f"      Obfuscated classes excluded: {obfuscated_classes_filtered:,}")
+        safe_print(f"      Logical classes (clean): {len(logical_classes_manual):,}")
+        safe_print(f"      App-specific classes: {len(app_specific_classes_manual):,}")
+        safe_print(f"      Non-discovered SDK classes: {len(non_discovered_sdk_classes_manual):,}")
+    
+    # Print a simple summary of non-discovered SDK classes (not detailed breakdown)
+    if len(non_discovered_sdk_classes_manual) > 0:
+        safe_print(f"\n   📊 Non-discovered SDK classes summary: {len(non_discovered_sdk_classes_manual):,} classes found")
+        safe_print(f"   💡 These classes passed all filtering steps and are not app-specific classes")
+        safe_print(f"   🔍 Use zebra_sdk_discovery.py for detailed analysis and pattern generation")
+    else:
+        safe_print(f"\n   ✅ No non-discovered SDK classes found")
+    
+    # OBFUSCATION ANALYSIS: Use the counts from PHASE 1 (already calculated above)
+    # Note: We use the obfuscation patterns counted from ALL classes (before filtering)
+    # This is correct for obfuscation rule detection
     
     # Manual analysis for method names (look for single character method names in any context)
     single_char_methods = re.findall(r'[^a-zA-Z][a-z]\x00', data_str)
@@ -786,11 +832,10 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
     manual_patterns['sdk_classes'] = len(sdk_classes_manual)
     manual_patterns['legitimate_classes'] = len(legitimate_classes_manual)
     manual_patterns['non_discovered_sdk_classes'] = len(non_discovered_sdk_classes_manual)
-    manual_patterns['single_digit_classes'] = len(manual_single_digit_classes)
-    manual_patterns['two_digit_classes'] = len(manual_two_digit_classes)
+    # Note: single/double/triple digit classes already set in PHASE 1 above
     
     # Debug output for single class detection - always show when no single classes found
-    if len(manual_single_digit_classes) == 0:
+    if manual_patterns['single_digit_classes'] == 0:
         safe_print("🔍 DEBUG: No single character classes found. Showing first 20 logical classes for inspection:")
         for i, class_name in enumerate(logical_classes_manual[:20]):
             clean_name = class_name[1:-1]  # Remove L and ;
@@ -802,8 +847,13 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
             safe_print(f"🔍 DEBUG: Found {len(potential_singles)} short classes (length <= 4):")
             for c in potential_singles[:10]:
                 safe_print(f"   Short class: {c}")
+        
+        # Show some obfuscated single char classes that were filtered out
+        if len(obfuscation_single_classes) > 0:
+            safe_print(f"🔍 DEBUG: But found {len(obfuscation_single_classes)} obfuscated single-char classes (filtered for SDK analysis):")
+            for c in sorted(obfuscation_single_classes[:10]):
+                safe_print(f"   Obfuscated: {c}")
     
-    manual_patterns['three_digit_classes'] = len(manual_three_digit_classes)
     manual_patterns['single_methods'] = len(manual_single_methods)
     manual_patterns['short_strings'] = len(manual_short_strings)
     
@@ -836,7 +886,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None):
     
     # Note: YARA method cannot calculate accurate non-discovered SDK classes
     # because it lacks sophisticated filtering of obfuscated patterns.
-    # Only the manual analysis provides accurate non-discovered SDK calculations.
+    # Only the manual analysis with zebra_sdk_discovery.py provides accurate calculations.
     
     # Debug logging for the PhotoTable case
     if sdk_classes_raw != sdk_classes:
