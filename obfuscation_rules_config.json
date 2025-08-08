@@ -1,0 +1,225 @@
+{
+  "rules": {
+    "single_dex": {
+      "yara_strict": {
+        "minimal": {
+          "description": "YARA Strict Minimal rule for single DEX with logical classes >= 50",
+          "applicable_when": {
+            "dex_count": 1,
+            "logical_classes_min": 50
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "YARA Strict Optimal rule for single DEX with logical classes >= 50",
+          "applicable_when": {
+            "dex_count": 1,
+            "logical_classes_min": 50
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      },
+      "manual_investigation": {
+        "minimal": {
+          "description": "Manual Investigation Minimal rule for single DEX with logical classes >= 50",
+          "applicable_when": {
+            "dex_count": 1,
+            "logical_classes_min": 50
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "Manual Investigation Optimal rule for single DEX with logical classes >= 50",
+          "applicable_when": {
+            "dex_count": 1,
+            "logical_classes_min": 50
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      }
+    },
+    "multi_dex": {
+      "yara_strict": {
+        "minimal": {
+          "description": "YARA Strict Minimal rule for multi DEX applications",
+          "applicable_when": {
+            "dex_count_min": 2,
+            "logical_classes_min": 100
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "YARA Strict Optimal rule for multi DEX applications",
+          "applicable_when": {
+            "dex_count_min": 2,
+            "logical_classes_min": 100
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      },
+      "manual_investigation": {
+        "minimal": {
+          "description": "Manual Investigation Minimal rule for multi DEX applications",
+          "applicable_when": {
+            "dex_count_min": 2,
+            "logical_classes_min": 50
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "Manual Investigation Optimal rule for multi DEX applications",
+          "applicable_when": {
+            "dex_count_min": 2,
+            "logical_classes_min": 100
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      }
+    },
+    "small_dex": {
+      "yara_strict": {
+        "minimal": {
+          "description": "YARA Strict Minimal rule for small DEX files",
+          "applicable_when": {
+            "logical_classes_max": 49
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "YARA Strict Optimal rule for small DEX files",
+          "applicable_when": {
+            "logical_classes_max": 49
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      },
+      "manual_investigation": {
+        "minimal": {
+          "description": "Manual Investigation Minimal rule for small DEX files",
+          "applicable_when": {
+            "logical_classes_max": 49
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.3x"
+          }
+        },
+        "optimal": {
+          "description": "Manual Investigation Optimal rule for small DEX files",
+          "applicable_when": {
+            "logical_classes_max": 49
+          },
+          "thresholds": {
+            "short_char": 0,
+            "short_method": 0,
+            "combined_short_rule": 0,
+            "single_char_classes": 0,
+            "two_char_classes": 0,
+            "three_char_classes": 0,
+            "combined_class_rule": "0.5x"
+          }
+        }
+      }
+    }
+  },
+  "rule_evaluation_order": [
+    "small_dex",
+    "single_dex", 
+    "multi_dex"
+  ],
+  "default_rule_type": "optimal",
+  "metadata": {
+    "version": "1.0",
+    "description": "Configurable obfuscation detection rules for different DEX modalities",
+    "rule_format_explanation": {
+      "numeric_values": "Absolute thresholds (e.g., 30 means >= 30)",
+      "multiplier_values": "Relative to logical classes (e.g., '1.5x' means >= 1.5 * logical_classes)",
+      "zero_values": "Rule component not considered (disabled)"
+    }
+  }
+}

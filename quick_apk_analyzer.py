@@ -380,7 +380,9 @@ def run_command_with_timeout(cmd, timeout=10):
         }
 
 def run_comprehensive_massive_obf_test(apk_path, timeout=30, package_name=None, sdk_config=None):
-    """Run comprehensive massive obfuscation test and return structured results"""
+    """
+    Run comprehensive massive obfuscation test and return structured results
+    """
     # Use the enhanced version if SDK config is available
     if sdk_config and package_name:
         return apply_sdk_config_to_comprehensive_test(apk_path, package_name, sdk_config, timeout)
@@ -482,8 +484,31 @@ def parse_comprehensive_obf_output(stdout):
             'highest_completion_percentage': 0.0,
             'manual_analysis_result': 'NOT_TRIGGERED',
             'consistency_check': 'UNKNOWN',
+            'analysis_type': 'UNKNOWN',  # MULTI_DEX_COMBINED, SINGLE_DEX, or FALLBACK
+            'dex_modality': 'UNKNOWN',   # single_dex, multi_dex, small_dex
+            'rule_system_used': 'UNKNOWN',  # CONFIGURABLE_RULES or LEGACY
             'detailed_results': []
         }
+        
+        # Detect analysis type
+        if 'MULTI-DEX COMBINED ANALYSIS' in stdout:
+            data['analysis_type'] = 'MULTI_DEX_COMBINED'
+        elif 'SINGLE DEX ANALYSIS' in stdout:
+            data['analysis_type'] = 'SINGLE_DEX'
+        else:
+            data['analysis_type'] = 'FALLBACK'
+        
+        # Extract DEX modality
+        import re
+        modality_match = re.search(r'DEX Modality:\s*(\w+)', stdout)
+        if modality_match:
+            data['dex_modality'] = modality_match.group(1)
+        
+        # Detect rule system used
+        if 'CONFIGURABLE RULE-BASED ANALYSIS' in stdout or 'COMBINED MULTI-DEX RULE EVALUATION' in stdout:
+            data['rule_system_used'] = 'CONFIGURABLE_RULES'
+        else:
+            data['rule_system_used'] = 'LEGACY'
         
         # Look for APKiD results
         if 'massive_name_obfuscation: 🔴 DETECTED' in stdout or 'massive_name_obfuscation: DETECTED' in stdout:
@@ -491,68 +516,512 @@ def parse_comprehensive_obf_output(stdout):
         elif 'massive_name_obfuscation: 🟢 NOT DETECTED' in stdout or 'massive_name_obfuscation: NOT DETECTED' in stdout:
             data['apkid_detected_massive_obf'] = False
         
-        # Extract completion percentage
-        import re
-        percentage_pattern = r'Completion percentage:\s*(\d+\.?\d*)%'
-        percentages = re.findall(percentage_pattern, stdout)
-        if percentages:
-            data['highest_completion_percentage'] = max(float(p) for p in percentages)
+        # Extract completion percentage from new format
+        # New format: "Best completion: X.X%" or "Highest completion percentage: X.X%"
+        percentage_patterns = [
+            r'Best completion:\s*(\d+\.?\d*)%',
+            r'Highest completion percentage:\s*(\d+\.?\d*)%',
+            r'Completion percentage:\s*(\d+\.?\d*)%'
+        ]
         
-        # Look for highest percentage in different formats
-        if data['highest_completion_percentage'] == 0.0:
-            alt_percentage_pattern = r'Highest completion percentage:\s*(\d+\.?\d*)%'
-            alt_percentages = re.findall(alt_percentage_pattern, stdout)
-            if alt_percentages:
-                data['highest_completion_percentage'] = float(alt_percentages[0])
+        for pattern in percentage_patterns:
+            percentages = re.findall(pattern, stdout)
+            if percentages:
+                data['highest_completion_percentage'] = float(percentages[-1])  # Use last match
+                break
         
-        # Extract manual analysis result
-        if 'Manual analysis result: 🔴 SHOULD TRIGGER' in stdout or 'SHOULD TRIGGER' in stdout:
-            data['manual_analysis_result'] = 'SHOULD_TRIGGER'
-        elif 'Manual analysis result: 🟢 SHOULD NOT TRIGGER' in stdout or 'SHOULD NOT TRIGGER' in stdout:
+        # Extract manual analysis result from new format
+        if 'Manual analysis result: 🔴 SHOULD NOT TRIGGER' in stdout or 'SHOULD NOT TRIGGER' in stdout:
             data['manual_analysis_result'] = 'SHOULD_NOT_TRIGGER'
+        elif 'Manual analysis result: � SHOULD TRIGGER' in stdout or 'SHOULD TRIGGER' in stdout:
+            data['manual_analysis_result'] = 'SHOULD_TRIGGER'
         
-        # Extract consistency check
+        # Extract consistency check from new format
         if 'Consistency: ✅ Manual analysis matches APKiD result' in stdout or 'Manual analysis matches APKiD' in stdout:
             data['consistency_check'] = 'CONSISTENT'
-        elif 'Consistency: ⚠️  Manual analysis differs from APKiD result' in stdout or 'differs from APKiD' in stdout:
+        elif 'Consistency: ⚠️ Manual analysis differs from APKiD result' in stdout or 'differs from APKiD' in stdout:
             data['consistency_check'] = 'INCONSISTENT'
         
-        # Count DEX files analyzed
-        dex_count_pattern = r'Files analyzed:\s*(\d+)\s*DEX'
-        dex_matches = re.findall(dex_count_pattern, stdout)
-        if dex_matches:
-            data['dex_files_analyzed'] = int(dex_matches[0])
+        # Count DEX files analyzed from new format
+        dex_count_patterns = [
+            r'Files analyzed:\s*(\d+)\s*DEX',
+            r'Total DEX files:\s*(\d+)',
+            r'(\d+)\s*DEX files'
+        ]
         
-        # Count DEX files analyzed
-        dex_count_pattern = r'Files analyzed:\s*(\d+)\s*DEX'
-        dex_matches = re.findall(dex_count_pattern, stdout)
-        if dex_matches:
-            data['dex_files_analyzed'] = int(dex_matches[0])
+        for pattern in dex_count_patterns:
+            dex_matches = re.findall(pattern, stdout)
+            if dex_matches:
+                data['dex_files_analyzed'] = int(dex_matches[-1])  # Use last match
+                break
         
-        # Extract final assessment agreement from main section
-        if 'Agreement: ✅ CONSISTENT' in stdout:
-            data['consistency_check'] = 'CONSISTENT'
-        elif 'Agreement: ⚠️ DIFFERENT' in stdout:
-            data['consistency_check'] = 'INCONSISTENT'
+        # Parse new configurable rules analysis results
+        if data['rule_system_used'] == 'CONFIGURABLE_RULES':
+            data.update(parse_configurable_rules_results(stdout))
+        else:
+            # Fallback to legacy parsing for backward compatibility
+            data.update(parse_legacy_method_results(stdout))
         
-        # Extract individual DEX analysis results
-        dex_sections = re.split(r'DETAILED ANALYSIS:', stdout)
-        for section in dex_sections[1:]:  # Skip first split (before first DEX)
-            dex_result = parse_individual_dex_result(section)
-            if dex_result:
-                data['detailed_results'].append(dex_result)
+        # Extract individual DEX analysis results for detailed_results
+        data['detailed_results'] = extract_individual_dex_analysis(stdout)
         
-        # Create final_dual_analysis by summarizing all individual DEX analyses
-        if data['detailed_results']:
-            data['final_dual_analysis'] = create_final_dual_analysis_summary(data['detailed_results'])
+        # Create final_dual_analysis by aggregating all DEX results
+        data['final_dual_analysis'] = create_final_dual_analysis(data['detailed_results'], data.get('dex_files_analyzed', 0))
         
         return data
         
     except Exception as e:
+        print(f"Error parsing comprehensive massive obfuscation output: {e}")
         return {
-            'parse_error': f'Failed to parse comprehensive obf output: {e}',
-            'raw_output_sample': stdout[:1000] + ('...' if len(stdout) > 1000 else '')
+            'apkid_detected_massive_obf': False,
+            'dex_files_analyzed': 0,
+            'highest_completion_percentage': 0.0,
+            'manual_analysis_result': 'ERROR',
+            'consistency_check': 'ERROR',
+            'analysis_type': 'ERROR',
+            'dex_modality': 'ERROR',
+            'rule_system_used': 'ERROR',
+            'detailed_results': []
         }
+
+def parse_configurable_rules_results(stdout):
+    """Parse results from the new configurable rules system"""
+    import re
+    results = {}
+    
+    # Extract rule evaluation results
+    rule_results = []
+    
+    # Look for rule evaluation sections
+    rule_pattern = r'Rule "([^"]+)":\s*(.*?)(?=Rule "|$)'
+    rule_matches = re.findall(rule_pattern, stdout, re.DOTALL)
+    
+    for rule_name, rule_content in rule_matches:
+        rule_result = {
+            'rule_name': rule_name,
+            'triggered': False,
+            'details': {}
+        }
+        
+        # Check if rule triggered
+        if 'TRIGGERED' in rule_content or '🔴' in rule_content:
+            rule_result['triggered'] = True
+        elif 'NOT TRIGGERED' in rule_content or '🟢' in rule_content:
+            rule_result['triggered'] = False
+        
+        # Extract specific details for each rule type
+        if 'min_unique_string_short' in rule_content:
+            match = re.search(r'min_unique_string_short:\s*(\d+)', rule_content)
+            if match:
+                rule_result['details']['min_unique_string_short'] = int(match.group(1))
+        
+        if 'min_total_short_strings' in rule_content:
+            match = re.search(r'min_total_short_strings:\s*(\d+)', rule_content)
+            if match:
+                rule_result['details']['min_total_short_strings'] = int(match.group(1))
+        
+        rule_results.append(rule_result)
+    
+    results['configurable_rules'] = rule_results
+    
+    # Extract combined metrics if available
+    combined_patterns = {
+        'total_classes': r'Combined total classes:\s*(\d+)',
+        'unique_short_strings': r'Combined unique short strings:\s*(\d+)',
+        'total_short_strings': r'Combined total short strings:\s*(\d+)',
+        'unique_very_short_strings': r'Combined unique very short strings:\s*(\d+)',
+        'total_very_short_strings': r'Combined total very short strings:\s*(\d+)'
+    }
+    
+    for metric, pattern in combined_patterns.items():
+        match = re.search(pattern, stdout)
+        if match:
+            results[metric] = int(match.group(1))
+    
+    return results
+
+def parse_legacy_method_results(stdout):
+    """Parse results from legacy Method 1-5 system for backward compatibility"""
+    import re
+    results = {}
+    
+    # Look for Method sections
+    method_sections = re.findall(r'(Method \d+[^:]*:.*?)(?=Method \d+|$)', stdout, re.DOTALL)
+    
+    legacy_results = []
+    for section in method_sections:
+        method_result = {
+            'method_name': 'Unknown',
+            'triggered': False,
+            'details': {}
+        }
+        
+        # Extract method name
+        method_match = re.search(r'(Method \d+[^:]*)', section)
+        if method_match:
+            method_result['method_name'] = method_match.group(1)
+        
+        # Check if triggered
+        if 'TRIGGERED' in section or '🔴' in section:
+            method_result['triggered'] = True
+        elif 'NOT TRIGGERED' in section or '🟢' in section:
+            method_result['triggered'] = False
+        
+        legacy_results.append(method_result)
+    
+    results['legacy_methods'] = legacy_results
+    
+    # Look for YARA-STRICT vs MANUAL comparison
+    if 'YARA-STRICT vs MANUAL ANALYSIS' in stdout:
+        comparison_section = stdout.split('YARA-STRICT vs MANUAL ANALYSIS')[1]
+        
+        # Extract comparison results
+        if 'Agreement: ✅ CONSISTENT' in comparison_section:
+            results['yara_manual_agreement'] = 'CONSISTENT'
+        elif 'Agreement: ⚠️ DIFFERENT' in comparison_section:
+            results['yara_manual_agreement'] = 'INCONSISTENT'
+    
+    return results
+
+def extract_individual_dex_analysis(stdout):
+    """
+    Extract individual DEX analysis results with dual analysis data
+    Returns array of DEX analyses including yara_strict and manual_inspection for each DEX
+    """
+    dex_results = []
+    
+    # Split the output by DETAILED ANALYSIS sections
+    if 'DETAILED ANALYSIS:' in stdout:
+        # Split by the detailed analysis marker
+        sections = stdout.split('DETAILED ANALYSIS:')
+        
+        for i, section in enumerate(sections[1:], 1):  # Skip first empty section
+            # Parse this individual DEX section
+            dex_result = parse_individual_dex_result(section)
+            
+            # Only include if we successfully parsed basic info
+            if dex_result.get('dex_name', 'unknown') != 'unknown':
+                # Format the result to match the desired structure
+                formatted_result = {
+                    "dex_name": dex_result['dex_name'],
+                    "dex_size_bytes": dex_result['dex_size_bytes'],
+                    "dual_analysis": {
+                        "yara_strict": {
+                            "total_classes": dex_result['dual_analysis']['yara_strict']['total_classes'],
+                            "logical_classes": dex_result['dual_analysis']['yara_strict']['logical_classes'],
+                            "short_strings": dex_result['dual_analysis']['yara_strict']['short_strings'],
+                            "single_classes": dex_result['dual_analysis']['yara_strict']['single_classes'],
+                            "two_digit_classes": dex_result['dual_analysis']['yara_strict']['two_digit_classes'],
+                            "three_char_classes": dex_result['dual_analysis']['yara_strict']['three_char_classes'],
+                            "single_methods": dex_result['dual_analysis']['yara_strict']['single_methods']
+                        },
+                        "manual_inspection": {
+                            "total_classes": dex_result['dual_analysis']['manual_inspection']['total_classes'],
+                            "logical_classes": dex_result['dual_analysis']['manual_inspection']['logical_classes'],
+                            "non_discovered_sdk_classes": dex_result['dual_analysis']['manual_inspection']['non_discovered_sdk_classes'],
+                            "zebra_symbol_classes": dex_result['dual_analysis']['manual_inspection']['zebra_symbol_classes'],
+                            "short_strings": dex_result['dual_analysis']['manual_inspection']['short_strings'],
+                            "single_classes": dex_result['dual_analysis']['manual_inspection']['single_classes'],
+                            "two_digit_classes": dex_result['dual_analysis']['manual_inspection']['two_digit_classes'],
+                            "three_char_classes": dex_result['dual_analysis']['manual_inspection']['three_char_classes'],
+                            "single_methods": dex_result['dual_analysis']['manual_inspection']['single_methods']
+                        }
+                    }
+                }
+                dex_results.append(formatted_result)
+    
+    return dex_results
+
+def create_final_dual_analysis(detailed_results, total_dex_count):
+    """
+    Create aggregated final dual analysis from individual DEX results
+    Sums up all metrics from individual DEX files
+    """
+    if not detailed_results:
+        return {
+            "total_dex_files": total_dex_count,
+            "aggregated_analysis": {
+                "yara_strict": {
+                    "total_classes": 0,
+                    "logical_classes": 0,
+                    "short_strings": 0,
+                    "single_classes": 0,
+                    "two_digit_classes": 0,
+                    "three_char_classes": 0,
+                    "single_methods": 0
+                },
+                "manual_inspection": {
+                    "total_classes": 0,
+                    "logical_classes": 0,
+                    "non_discovered_sdk_classes": 0,
+                    "zebra_symbol_classes": 0,
+                    "short_strings": 0,
+                    "single_classes": 0,
+                    "two_digit_classes": 0,
+                    "three_char_classes": 0,
+                    "single_methods": 0
+                }
+            }
+        }
+    
+    # Initialize aggregated totals
+    yara_totals = {
+        "total_classes": 0,
+        "logical_classes": 0,
+        "short_strings": 0,
+        "single_classes": 0,
+        "two_digit_classes": 0,
+        "three_char_classes": 0,
+        "single_methods": 0
+    }
+    
+    manual_totals = {
+        "total_classes": 0,
+        "logical_classes": 0,
+        "non_discovered_sdk_classes": 0,
+        "zebra_symbol_classes": 0,
+        "short_strings": 0,
+        "single_classes": 0,
+        "two_digit_classes": 0,
+        "three_char_classes": 0,
+        "single_methods": 0
+    }
+    
+    # Sum up all DEX file results
+    for dex_result in detailed_results:
+        yara = dex_result['dual_analysis']['yara_strict']
+        manual = dex_result['dual_analysis']['manual_inspection']
+        
+        # Sum YARA metrics
+        yara_totals["total_classes"] += yara.get("total_classes", 0)
+        yara_totals["logical_classes"] += yara.get("logical_classes", 0)
+        yara_totals["short_strings"] += yara.get("short_strings", 0)
+        yara_totals["single_classes"] += yara.get("single_classes", 0)
+        yara_totals["two_digit_classes"] += yara.get("two_digit_classes", 0)
+        yara_totals["three_char_classes"] += yara.get("three_char_classes", 0)
+        yara_totals["single_methods"] += yara.get("single_methods", 0)
+        
+        # Sum manual inspection metrics
+        manual_totals["total_classes"] += manual.get("total_classes", 0)
+        manual_totals["logical_classes"] += manual.get("logical_classes", 0)
+        manual_totals["non_discovered_sdk_classes"] += manual.get("non_discovered_sdk_classes", 0)
+        manual_totals["zebra_symbol_classes"] += manual.get("zebra_symbol_classes", 0)
+        manual_totals["short_strings"] += manual.get("short_strings", 0)
+        manual_totals["single_classes"] += manual.get("single_classes", 0)
+        manual_totals["two_digit_classes"] += manual.get("two_digit_classes", 0)
+        manual_totals["three_char_classes"] += manual.get("three_char_classes", 0)
+        manual_totals["single_methods"] += manual.get("single_methods", 0)
+    
+    return {
+        "total_dex_files": len(detailed_results),
+        "aggregated_analysis": {
+            "yara_strict": {
+                "total_classes": yara_totals["total_classes"],
+                "logical_classes": yara_totals["logical_classes"],
+                "short_strings": yara_totals["short_strings"],
+                "single_classes": yara_totals["single_classes"],
+                "two_digit_classes": yara_totals["two_digit_classes"],
+                "three_char_classes": yara_totals["three_char_classes"],
+                "single_methods": yara_totals["single_methods"]
+            },
+            "manual_inspection": {
+                "total_classes": manual_totals["total_classes"],
+                "logical_classes": manual_totals["logical_classes"],
+                "non_discovered_sdk_classes": manual_totals["non_discovered_sdk_classes"],
+                "zebra_symbol_classes": manual_totals["zebra_symbol_classes"],
+                "short_strings": manual_totals["short_strings"],
+                "single_classes": manual_totals["single_classes"],
+                "two_digit_classes": manual_totals["two_digit_classes"],
+                "three_char_classes": manual_totals["three_char_classes"],
+                "single_methods": manual_totals["single_methods"]
+            }
+        }
+    }
+
+def extract_combined_analysis_section(stdout):
+    """Extract the combined analysis section from comprehensive test output"""
+    import re
+    
+    combined_analysis = {
+        'section_found': False,
+        'analysis_type': 'UNKNOWN',
+        'total_dex_files': 0,
+        'combined_metrics': {},
+        'rule_evaluations': [],
+        'pattern_aggregation': {},
+        'raw_section': ''
+    }
+    
+    # Look for MULTI-DEX COMBINED ANALYSIS section
+    multi_dex_pattern = r'MULTI-DEX COMBINED ANALYSIS.*?(?=================================================================================|$)'
+    multi_dex_match = re.search(multi_dex_pattern, stdout, re.DOTALL)
+    
+    if multi_dex_match:
+        combined_analysis['section_found'] = True
+        combined_analysis['analysis_type'] = 'MULTI_DEX_COMBINED'
+        section_content = multi_dex_match.group(0)
+        combined_analysis['raw_section'] = section_content
+        
+        # Extract DEX file count
+        dex_count_match = re.search(r'(\d+)\s*DEX files?', section_content)
+        if dex_count_match:
+            combined_analysis['total_dex_files'] = int(dex_count_match.group(1))
+        
+        # Extract combined metrics
+        metrics_patterns = {
+            'total_classes': r'Combined total classes:\s*(\d+(?:,\d+)*)',
+            'unique_short_strings': r'Combined unique short strings:\s*(\d+(?:,\d+)*)',
+            'total_short_strings': r'Combined total short strings:\s*(\d+(?:,\d+)*)',
+            'unique_very_short_strings': r'Combined unique very short strings:\s*(\d+(?:,\d+)*)',
+            'total_very_short_strings': r'Combined total very short strings:\s*(\d+(?:,\d+)*)',
+            'logical_classes': r'Logical classes:\s*(\d+(?:,\d+)*)',
+            'sdk_classes': r'SDK classes:\s*(\d+(?:,\d+)*)',
+            'single_methods': r'Single methods:\s*(\d+(?:,\d+)*)',
+            'two_char_classes': r'Two-char classes:\s*(\d+(?:,\d+)*)',
+            'three_char_classes': r'Three-char classes:\s*(\d+(?:,\d+)*)'
+        }
+        
+        for metric, pattern in metrics_patterns.items():
+            match = re.search(pattern, section_content)
+            if match:
+                # Remove commas and convert to int
+                value = int(match.group(1).replace(',', ''))
+                combined_analysis['combined_metrics'][metric] = value
+        
+        # Extract rule evaluation results
+        rule_pattern = r'Rule "([^"]+)":(.*?)(?=Rule "|$)'
+        rule_matches = re.findall(rule_pattern, section_content, re.DOTALL)
+        
+        for rule_name, rule_content in rule_matches:
+            rule_eval = {
+                'rule_name': rule_name,
+                'triggered': False,
+                'conditions': [],
+                'result_details': rule_content.strip()
+            }
+            
+            # Check if triggered
+            if 'TRIGGERED' in rule_content or '🔴' in rule_content:
+                rule_eval['triggered'] = True
+            elif 'NOT TRIGGERED' in rule_content or '🟢' in rule_content:
+                rule_eval['triggered'] = False
+            
+            # Extract condition details
+            condition_patterns = {
+                'min_unique_string_short': r'min_unique_string_short:\s*(\d+)',
+                'min_total_short_strings': r'min_total_short_strings:\s*(\d+)',
+                'min_classes': r'min_classes:\s*(\d+)',
+                'min_methods': r'min_methods:\s*(\d+)'
+            }
+            
+            for condition, pattern in condition_patterns.items():
+                match = re.search(pattern, rule_content)
+                if match:
+                    threshold = int(match.group(1))
+                    
+                    # Try to find current value
+                    current_match = re.search(rf'{condition}:\s*\d+\s*\(current:\s*(\d+)\)', rule_content)
+                    if current_match:
+                        current_value = int(current_match.group(1))
+                        rule_eval['conditions'].append({
+                            'condition': condition,
+                            'threshold': threshold,
+                            'current_value': current_value,
+                            'passed': current_value >= threshold
+                        })
+            
+            combined_analysis['rule_evaluations'].append(rule_eval)
+    
+    # Look for SINGLE DEX ANALYSIS as fallback
+    elif 'SINGLE DEX ANALYSIS' in stdout:
+        combined_analysis['section_found'] = True
+        combined_analysis['analysis_type'] = 'SINGLE_DEX'
+        combined_analysis['total_dex_files'] = 1
+    
+    return combined_analysis
+
+def extract_detailed_analysis_section(stdout):
+    """Extract detailed analysis sections for individual DEX files"""
+    import re
+    
+    detailed_analysis = {
+        'dex_files': [],
+        'total_dex_analyzed': 0,
+        'analysis_method': 'UNKNOWN'
+    }
+    
+    # For new combined analysis, look for pattern extraction sections
+    if 'MULTI-DEX COMBINED ANALYSIS' in stdout:
+        detailed_analysis['analysis_method'] = 'COMBINED_MULTI_DEX'
+        
+        # Extract individual DEX pattern extraction
+        dex_pattern = r'Extracting patterns from:\s*([^\\n]+)(.*?)(?=Extracting patterns from:|COMBINED MULTI-DEX|$)'
+        dex_matches = re.findall(dex_pattern, stdout, re.DOTALL)
+        
+        for dex_name, dex_content in dex_matches:
+            dex_info = {
+                'dex_name': dex_name.strip(),
+                'dex_size_bytes': 0,
+                'header_classes': 0,
+                'patterns_extracted': {},
+                'raw_analysis': dex_content.strip()
+            }
+            
+            # Extract DEX size
+            size_match = re.search(r'DEX file size:\s*([0-9,]+)\s*bytes', dex_content)
+            if size_match:
+                dex_info['dex_size_bytes'] = int(size_match.group(1).replace(',', ''))
+            
+            # Extract header class count
+            header_match = re.search(r'DEX header class_defs_size:\s*([0-9,]+)', dex_content)
+            if header_match:
+                dex_info['header_classes'] = int(header_match.group(1).replace(',', ''))
+            
+            # Extract patterns extracted info
+            patterns_match = re.search(r'Extracted patterns:\s*YARA=(\d+)\s*fields,\s*Manual=(\d+)\s*fields', dex_content)
+            if patterns_match:
+                dex_info['patterns_extracted'] = {
+                    'yara_fields': int(patterns_match.group(1)),
+                    'manual_fields': int(patterns_match.group(2))
+                }
+            
+            detailed_analysis['dex_files'].append(dex_info)
+        
+        detailed_analysis['total_dex_analyzed'] = len(detailed_analysis['dex_files'])
+    
+    # For legacy detailed analysis, look for individual DEX analysis sections
+    elif 'DETAILED ANALYSIS:' in stdout:
+        detailed_analysis['analysis_method'] = 'INDIVIDUAL_DEX_LEGACY'
+        
+        # Split by detailed analysis markers
+        dex_sections = stdout.split('DETAILED ANALYSIS:')
+        
+        for i, section in enumerate(dex_sections[1:], 1):  # Skip first empty section
+            dex_info = {
+                'dex_number': i,
+                'analysis_content': section[:1000] + ('...' if len(section) > 1000 else ''),  # Truncate for size
+                'has_dual_analysis': 'YARA-STRICT vs MANUAL' in section,
+                'has_method_comparison': 'Method ' in section
+            }
+            
+            # Extract basic info
+            name_match = re.search(r'(\w+\.dex)', section)
+            if name_match:
+                dex_info['dex_name'] = name_match.group(1)
+            
+            size_match = re.search(r'DEX file size:\s*([0-9,]+)', section)
+            if size_match:
+                dex_info['dex_size_bytes'] = int(size_match.group(1).replace(',', ''))
+            
+            classes_match = re.search(r'Total classes.*?:\s*([0-9,]+)', section)
+            if classes_match:
+                dex_info['total_classes'] = int(classes_match.group(1).replace(',', ''))
+            
+            detailed_analysis['dex_files'].append(dex_info)
+        
+        detailed_analysis['total_dex_analyzed'] = len(detailed_analysis['dex_files'])
+    
+    return detailed_analysis
 
 def parse_individual_dex_result(section):
     """Parse individual DEX analysis section with comprehensive dual analysis
@@ -926,10 +1395,1117 @@ def parse_individual_dex_result(section):
             'parse_error': f'Failed to parse individual DEX result: {e}',
             'raw_section_sample': section[:500] + ('...' if len(section) > 500 else '')
         }
+    try:
+        result = {
+            'dex_name': 'unknown',
+            'dex_size_bytes': 0,
+            'total_classes': 0,
+            'logical_classes': 0,
+            'conditions_passed': 0,
+            'total_conditions': 0,
+            'completion_percentage': 0.0,
+            'should_trigger': False,
+            'methods_passed': [],
+            'methods_failed': [],
+            'method_details': {},
+            'dual_analysis': {
+                'yara_strict': {
+                    'total_classes': 0,
+                    'logical_classes': 0,
+                    'short_strings': 0,
+                    'single_classes': 0,
+                    'two_digit_classes': 0,
+                    'three_char_classes': 0,
+                    'single_methods': 0,
+                    'methods_passed': [],
+                    'methods_failed': [],
+                    'methods_passed_count': 0,
+                    'should_trigger': False,
+                    'method_details': {}
+                },
+                'manual_inspection': {
+                    'total_classes': 0,
+                    'logical_classes': 0,
+                    'non_discovered_sdk_classes': 0,
+                    'zebra_symbol_classes': 0,
+                    'short_strings': 0,
+                    'single_classes': 0,
+                    'two_digit_classes': 0,
+                    'three_char_classes': 0,
+                    'single_methods': 0,
+                    'methods_passed': [],
+                    'methods_failed': [],
+                    'methods_passed_count': 0,
+                    'should_trigger': False,
+                    'method_details': {}
+                },
+                'effectiveness_gap': {
+                    'short_strings_ratio': 0.0,
+                    'single_classes_ratio': 0.0,
+                    'two_digit_ratio': 0.0,
+                    'three_char_ratio': 0.0,
+                    'single_method_ratio': 0.0,
+                    'methods_gap': 0,
+                    'agreement': 'UNKNOWN'
+                }
+            }
+        }
+        
+        # Extract DEX name
+        name_match = re.search(r'(\w+\.dex)', section)
+        if name_match:
+            result['dex_name'] = name_match.group(1)
+        
+        # Extract DEX size
+        size_match = re.search(r'DEX file size:\s*([0-9,]+)\s*bytes', section)
+        if size_match:
+            result['dex_size_bytes'] = int(size_match.group(1).replace(',', ''))
+        
+        # Extract Zebra/Symbol classes from main analysis section (before YARA-STRICT)
+        main_analysis_section = re.search(r'📊 Manual analysis - using zebra_sdk_discovery\.py logic:(.*?)📈 Raw Pattern Counts:', section, re.DOTALL)
+        if main_analysis_section:
+            main_data = main_analysis_section.group(1)
+            
+            # Extract Zebra/Symbol classes count from main section
+            main_zebra_symbol_match = re.search(r'Zebra/Symbol classes:\s*([0-9,]+)', main_data)
+            if main_zebra_symbol_match:
+                zebra_symbol_count = int(main_zebra_symbol_match.group(1).replace(',', ''))
+                # Store this for later use in manual inspection section
+                result['_main_zebra_symbol_classes'] = zebra_symbol_count
+            
+            # Extract non-discovered SDK classes from main section
+            main_non_discovered_match = re.search(r'Non-discovered SDK classes:\s*([0-9,]+)', main_data)
+            if main_non_discovered_match:
+                non_discovered_count = int(main_non_discovered_match.group(1).replace(',', ''))
+                result['_main_non_discovered_sdk_classes'] = non_discovered_count
+        
+        # Extract YARA-STRICT Analysis data
+        yara_section = re.search(r'📊 YARA-STRICT Analysis.*?───────────────────────────────────────────────(.*?)📋 MANUAL INSPECTION Analysis', section, re.DOTALL)
+        if yara_section:
+            yara_data = yara_section.group(1)
+            
+            # Extract YARA counts - IMPORTANT: Use DEX header classes as total, not YARA pattern count
+            yara_pattern_count_match = re.search(r'Total classes \(L\.\.\.;\):\s*([0-9,]+)', yara_data)
+            yara_dex_header_match = re.search(r'DEX header classes:\s*([0-9,]+)', yara_data)
+            yara_logical_match = re.search(r'Logical classes:\s*([0-9,]+)', yara_data)
+            
+            # Use DEX header classes as the true total count, not the YARA pattern count
+            if yara_dex_header_match:
+                result['dual_analysis']['yara_strict']['total_classes'] = int(yara_dex_header_match.group(1).replace(',', ''))
+            elif yara_pattern_count_match:
+                # Fallback to pattern count if DEX header not available
+                result['dual_analysis']['yara_strict']['total_classes'] = int(yara_pattern_count_match.group(1).replace(',', ''))
+            
+            if yara_logical_match:
+                # Logical classes can be negative due to calculation errors in the source
+                logical_classes = int(yara_logical_match.group(1).replace(',', ''))
+                # Ensure logical classes don't exceed total classes (data integrity fix)
+                total_classes = result['dual_analysis']['yara_strict']['total_classes']
+                if logical_classes > total_classes and total_classes > 0:
+                    # Log this anomaly but cap logical classes to total classes
+                    result['dual_analysis']['yara_strict']['logical_classes'] = total_classes
+                    result['dual_analysis']['yara_strict']['_logical_anomaly'] = {
+                        'original_logical': logical_classes,
+                        'capped_to_total': total_classes,
+                        'anomaly_type': 'logical_exceeds_total'
+                    }
+                else:
+                    result['dual_analysis']['yara_strict']['logical_classes'] = max(0, logical_classes)  # Ensure non-negative
+            
+            yara_short_strings_match = re.search(r'Short strings \(a-e\):\s*([0-9,]+)', yara_data)
+            if yara_short_strings_match:
+                result['dual_analysis']['yara_strict']['short_strings'] = int(yara_short_strings_match.group(1).replace(',', ''))
+            
+            yara_single_classes_match = re.search(r'Single class names:\s*([0-9,]+)', yara_data)
+            if yara_single_classes_match:
+                result['dual_analysis']['yara_strict']['single_classes'] = int(yara_single_classes_match.group(1).replace(',', ''))
+            
+            yara_two_char_match = re.search(r'Two-char classes:\s*([0-9,]+)', yara_data)
+            if yara_two_char_match:
+                result['dual_analysis']['yara_strict']['two_digit_classes'] = int(yara_two_char_match.group(1).replace(',', ''))
+            
+            yara_three_char_match = re.search(r'Three-char classes:\s*([0-9,]+)', yara_data)
+            if yara_three_char_match:
+                result['dual_analysis']['yara_strict']['three_char_classes'] = int(yara_three_char_match.group(1).replace(',', ''))
+            
+            yara_methods_match = re.search(r'Single methods:\s*([0-9,]+)', yara_data)
+            if yara_methods_match:
+                result['dual_analysis']['yara_strict']['single_methods'] = int(yara_methods_match.group(1).replace(',', ''))
+            
+            # Extract YARA methods passed - look in the comparison section instead
+            yara_methods_passed = []
+            yara_methods_failed = []
+            
+            # Extract YARA should trigger
+            if 'Rule should trigger: 🔴 YES' in yara_data:
+                result['dual_analysis']['yara_strict']['should_trigger'] = True
+            elif 'Rule should trigger: 🟢 NO' in yara_data:
+                result['dual_analysis']['yara_strict']['should_trigger'] = False
+        
+        # Extract MANUAL INSPECTION Analysis data
+        manual_section = re.search(r'📋 MANUAL INSPECTION Analysis.*?───────────────────────────────────────────────(.*?)🔍 COMPARISON', section, re.DOTALL)
+        if manual_section:
+            manual_data = manual_section.group(1)
+            
+            # Extract manual counts
+            manual_total_match = re.search(r'Total unique classes:\s*([0-9,]+)', manual_data)
+            if manual_total_match:
+                result['dual_analysis']['manual_inspection']['total_classes'] = int(manual_total_match.group(1).replace(',', ''))
+            
+            manual_logical_match = re.search(r'Logical classes analyzed:\s*([0-9,]+)', manual_data)
+            if manual_logical_match:
+                result['dual_analysis']['manual_inspection']['logical_classes'] = int(manual_logical_match.group(1).replace(',', ''))
+            
+            # Extract non-discovered SDK classes count
+            manual_non_discovered_match = re.search(r'Non-discovered SDK classes:\s*([0-9,]+)', manual_data)
+            if manual_non_discovered_match:
+                result['dual_analysis']['manual_inspection']['non_discovered_sdk_classes'] = int(manual_non_discovered_match.group(1).replace(',', ''))
+            elif '_main_non_discovered_sdk_classes' in result:
+                # Use value from main analysis section if not found in manual section
+                result['dual_analysis']['manual_inspection']['non_discovered_sdk_classes'] = result['_main_non_discovered_sdk_classes']
+            
+            # Extract Zebra/Symbol classes count
+            manual_zebra_symbol_match = re.search(r'Zebra/Symbol classes:\s*([0-9,]+)', manual_data)
+            if manual_zebra_symbol_match:
+                result['dual_analysis']['manual_inspection']['zebra_symbol_classes'] = int(manual_zebra_symbol_match.group(1).replace(',', ''))
+            elif '_main_zebra_symbol_classes' in result:
+                # Use value from main analysis section if not found in manual section
+                result['dual_analysis']['manual_inspection']['zebra_symbol_classes'] = result['_main_zebra_symbol_classes']
+            
+            manual_short_strings_match = re.search(r'Short strings \(a-e\):\s*([0-9,]+)', manual_data)
+            if manual_short_strings_match:
+                result['dual_analysis']['manual_inspection']['short_strings'] = int(manual_short_strings_match.group(1).replace(',', ''))
+            
+            manual_single_classes_match = re.search(r'Single-digit classes:\s*([0-9,]+)', manual_data)
+            if manual_single_classes_match:
+                result['dual_analysis']['manual_inspection']['single_classes'] = int(manual_single_classes_match.group(1).replace(',', ''))
+            
+            manual_two_char_match = re.search(r'Two-digit classes:\s*([0-9,]+)', manual_data)
+            if manual_two_char_match:
+                result['dual_analysis']['manual_inspection']['two_digit_classes'] = int(manual_two_char_match.group(1).replace(',', ''))
+            
+            manual_three_char_match = re.search(r'Three-digit classes:\s*([0-9,]+)', manual_data)
+            if manual_three_char_match:
+                result['dual_analysis']['manual_inspection']['three_char_classes'] = int(manual_three_char_match.group(1).replace(',', ''))
+            
+            manual_methods_match = re.search(r'Single-char methods:\s*([0-9,]+)', manual_data)
+            if manual_methods_match:
+                result['dual_analysis']['manual_inspection']['single_methods'] = int(manual_methods_match.group(1).replace(',', ''))
+            
+            # Extract manual methods passed (look for manual analysis trigger logic)
+            manual_methods_passed = []
+            manual_methods_failed = []
+            
+            # Check if manual analysis would pass each method based on the same criteria
+            # Note: Manual analysis uses broader patterns, so we need to check the "Rule would trigger" section
+            if 'Rule would trigger: 🔴 YES' in manual_data:
+                result['dual_analysis']['manual_inspection']['should_trigger'] = True
+                # If manual triggers, we assume it passed more methods than YARA
+                # We'll extract the specific method details from the comparison section
+            elif 'Rule would trigger: 🟢 NO' in manual_data:
+                result['dual_analysis']['manual_inspection']['should_trigger'] = False
+        
+        # Extract effectiveness gap data
+        comparison_section = re.search(r'🔍 COMPARISON.*?───────────────────────────────────────(.*?)🎯 Detailed Condition', section, re.DOTALL)
+        if comparison_section:
+            comparison_data = comparison_section.group(1)
+            
+            # Extract all pattern ratios
+            short_strings_ratio_match = re.search(r'Short strings \(a-e\):.*?vs.*?\(([0-9.]+x|infx)\)', comparison_data)
+            if short_strings_ratio_match:
+                ratio_str = short_strings_ratio_match.group(1)
+                if ratio_str == 'infx':
+                    result['dual_analysis']['effectiveness_gap']['short_strings_ratio'] = float('inf')
+                else:
+                    result['dual_analysis']['effectiveness_gap']['short_strings_ratio'] = float(ratio_str.replace('x', ''))
+            
+            single_classes_ratio_match = re.search(r'Single classes:.*?vs.*?\(([0-9.]+x|infx)\)', comparison_data)
+            if single_classes_ratio_match:
+                ratio_str = single_classes_ratio_match.group(1)
+                if ratio_str == 'infx':
+                    result['dual_analysis']['effectiveness_gap']['single_classes_ratio'] = float('inf')
+                else:
+                    result['dual_analysis']['effectiveness_gap']['single_classes_ratio'] = float(ratio_str.replace('x', ''))
+            
+            two_digit_ratio_match = re.search(r'Two-digit classes:.*?vs.*?\(([0-9.]+x|infx)\)', comparison_data)
+            if two_digit_ratio_match:
+                ratio_str = two_digit_ratio_match.group(1)
+                if ratio_str == 'infx':
+                    result['dual_analysis']['effectiveness_gap']['two_digit_ratio'] = float('inf')
+                else:
+                    result['dual_analysis']['effectiveness_gap']['two_digit_ratio'] = float(ratio_str.replace('x', ''))
+            
+            three_char_ratio_match = re.search(r'Three-char classes:.*?vs.*?\(([0-9.]+x|infx)\)', comparison_data)
+            if three_char_ratio_match:
+                ratio_str = three_char_ratio_match.group(1)
+                if ratio_str == 'infx':
+                    result['dual_analysis']['effectiveness_gap']['three_char_ratio'] = float('inf')
+                else:
+                    result['dual_analysis']['effectiveness_gap']['three_char_ratio'] = float(ratio_str.replace('x', ''))
+            
+            method_ratio_match = re.search(r'Single methods:.*?vs.*?\(([0-9.]+x|infx)\)', comparison_data)
+            if method_ratio_match:
+                ratio_str = method_ratio_match.group(1)
+                if ratio_str == 'infx':
+                    result['dual_analysis']['effectiveness_gap']['single_method_ratio'] = float('inf')
+                else:
+                    result['dual_analysis']['effectiveness_gap']['single_method_ratio'] = float(ratio_str.replace('x', ''))
+        
+        # Extract final assessment agreement
+        if 'Agreement: ✅ CONSISTENT' in section:
+            result['dual_analysis']['effectiveness_gap']['agreement'] = 'CONSISTENT'
+        elif 'Agreement: ⚠️ DIFFERENT' in section:
+            result['dual_analysis']['effectiveness_gap']['agreement'] = 'DIFFERENT'
+        
+        # Extract method results from the YARA-STRICT vs MANUAL ANALYSIS Comparison section
+        comparison_section = re.search(r'📊 YARA-STRICT vs MANUAL ANALYSIS Comparison:(.*?)📊 Final Assessment:', section, re.DOTALL)
+        if comparison_section:
+            comparison_data = comparison_section.group(1)
+            
+            # Parse individual methods using exact patterns from console output
+            methods = [
+                ('Method 1 - Short strings', 'Method_1_Short_strings'),
+                ('Method 2 - Single classes', 'Method_2_Single_classes'),
+                ('Method 3 - Two-char classes', 'Method_3_Two_char_classes'),
+                ('Method 3b - Three-char classes', 'Method_3b_Three_char_classes'),
+                ('Method 4 - Single methods', 'Method_4_Single_methods'),
+                ('Method 5 - Combined extreme', 'Method_5_Combined_extreme')
+            ]
+            
+            for method_pattern, method_name in methods:
+                # Find the method section
+                method_section = re.search(rf'{re.escape(method_pattern)}:(.*?)(?=Method \d|\Z)', comparison_data, re.DOTALL)
+                if method_section:
+                    method_data = method_section.group(1)
+                    
+                    # Check YARA result
+                    if '   YARA:   ✅ PASS' in method_data:
+                        yara_methods_passed.append(method_name)
+                    elif '   YARA:   ❌ FAIL' in method_data:
+                        yara_methods_failed.append(method_name)
+                    else:
+                        yara_methods_failed.append(method_name)
+                    
+                    # Check Manual result
+                    if '   MANUAL: ✅ PASS' in method_data:
+                        manual_methods_passed.append(method_name)
+                    elif '   MANUAL: ❌ FAIL' in method_data:
+                        manual_methods_failed.append(method_name)
+                    else:
+                        manual_methods_failed.append(method_name)
+                else:
+                    # Method not found, default to failed
+                    yara_methods_failed.append(method_name)
+                    manual_methods_failed.append(method_name)
+            
+            # Update the results
+            result['dual_analysis']['yara_strict']['methods_passed'] = yara_methods_passed
+            result['dual_analysis']['yara_strict']['methods_failed'] = yara_methods_failed
+            result['dual_analysis']['yara_strict']['methods_passed_count'] = len(yara_methods_passed)
+            
+            result['dual_analysis']['manual_inspection']['methods_passed'] = manual_methods_passed
+            result['dual_analysis']['manual_inspection']['methods_failed'] = manual_methods_failed
+            result['dual_analysis']['manual_inspection']['methods_passed_count'] = len(manual_methods_passed)
+        
+        # Extract final trigger decisions from the Final Assessment section
+        final_assessment_section = re.search(r'📊 Final Assessment:(.*?)================================================================================', section, re.DOTALL)
+        if final_assessment_section:
+            final_data = final_assessment_section.group(1)
+            
+            # Extract YARA-STRICT should trigger
+            if 'Rule should trigger: 🔴 YES' in final_data:
+                result['dual_analysis']['yara_strict']['should_trigger'] = True
+            elif 'Rule should trigger: 🟢 NO' in final_data:
+                result['dual_analysis']['yara_strict']['should_trigger'] = False
+            
+            # Extract MANUAL INSPECTION should trigger
+            if 'Rule would trigger: 🔴 YES' in final_data:
+                result['dual_analysis']['manual_inspection']['should_trigger'] = True
+            elif 'Rule would trigger: 🟢 NO' in final_data:
+                result['dual_analysis']['manual_inspection']['should_trigger'] = False
+        
+        # Calculate methods gap
+        yara_count = result['dual_analysis']['yara_strict']['methods_passed_count']
+        manual_count = result['dual_analysis']['manual_inspection']['methods_passed_count']
+        result['dual_analysis']['effectiveness_gap']['methods_gap'] = manual_count - yara_count
+        
+        # For backward compatibility, use YARA-strict results as primary
+        result['total_classes'] = result['dual_analysis']['yara_strict']['total_classes']
+        result['logical_classes'] = result['dual_analysis']['yara_strict']['logical_classes']
+        result['should_trigger'] = result['dual_analysis']['yara_strict']['should_trigger']
+        result['methods_passed'] = result['dual_analysis']['yara_strict']['methods_passed']
+        result['methods_failed'] = result['dual_analysis']['yara_strict']['methods_failed']
+        
+        # Clean up temporary variables
+        if '_main_zebra_symbol_classes' in result:
+            del result['_main_zebra_symbol_classes']
+        if '_main_non_discovered_sdk_classes' in result:
+            del result['_main_non_discovered_sdk_classes']
+        
+        return result
+        
+    except Exception as e:
+        return {
+            'parse_error': f'Failed to parse individual DEX result: {e}',
+            'raw_section_sample': section[:500] + ('...' if len(section) > 500 else '')
+        }
 
+
+def calculate_rule_parameter_margin_status(rule_config, actual_values, analysis_type="manual_investigation"):
+    """
+    Calculate margin status based on enabled rule parameters from the configuration.
+    
+    Args:
+        rule_config: Dictionary containing rule configuration with thresholds
+        actual_values: Dictionary containing actual measured values
+        analysis_type: "manual_investigation" or "yara_strict"
+    
+    Returns:
+        Dictionary with detailed margin status including enabled parameters only
+    """
+    
+    # The 7 core parameters to check
+    parameter_mapping = {
+        'short_char': 'short_strings',  # Maps to short_strings in actual values
+        'short_method': 'single_methods',  # Maps to single_methods in actual values
+        'combined_short_rule': None,  # Calculated field
+        'single_char_classes': 'single_classes',  # Maps to single_classes
+        'two_char_classes': 'two_digit_classes',  # Maps to two_digit_classes  
+        'three_char_classes': 'three_char_classes',  # Direct mapping
+        'combined_class_rule': None  # Calculated field (percentage-based)
+    }
+    
+    # Get enabled parameters (non-zero values)
+    enabled_parameters = []
+    parameter_evaluations = []
+    
+    if not rule_config or 'thresholds' not in rule_config:
+        return {
+            'status': 'UNKNOWN',
+            'margin': 0,
+            'parameters_passed': 0,
+            'total_enabled_parameters': 0,
+            'enabled_parameters': [],
+            'parameter_evaluations': [],
+            'optimal_threshold': 0,
+            'minimal_threshold': 0,
+            'margin_description': 'No rule configuration available'
+        }
+    
+    thresholds = rule_config['thresholds']
+    
+    # Check each parameter to see if it's enabled (non-zero)
+    for param_name, actual_field in parameter_mapping.items():
+        threshold_value = thresholds.get(param_name, 0)
+        
+        # Skip disabled parameters (value is 0)
+        if threshold_value == 0 or threshold_value == "0":
+            continue
+            
+        enabled_parameters.append(param_name)
+        
+        # Get actual value for comparison
+        actual_value = 0
+        if actual_field and actual_field in actual_values:
+            actual_value = actual_values[actual_field]
+        elif param_name == 'combined_short_rule':
+            # Calculate combined short rule (sum of short strings and methods)
+            actual_value = actual_values.get('short_strings', 0) + actual_values.get('single_methods', 0)
+        elif param_name == 'combined_class_rule':
+            # Calculate combined class rule (percentage of logical classes)
+            logical_classes = actual_values.get('logical_classes', 0)
+            short_classes = (actual_values.get('single_classes', 0) + 
+                           actual_values.get('two_digit_classes', 0) + 
+                           actual_values.get('three_char_classes', 0))
+            
+            # Fix for zero logical classes: treat as 1 to avoid division by zero
+            # This allows percentage calculation to work normally for obfuscated/packed APKs
+            effective_logical_classes = max(logical_classes, 1)
+            
+            actual_percentage = (short_classes / effective_logical_classes)
+            # Parse threshold (e.g., "0.3x" -> 0.3)
+            if isinstance(threshold_value, str) and threshold_value.endswith('x'):
+                threshold_percentage = float(threshold_value[:-1])
+                passed = actual_percentage >= threshold_percentage
+                
+                # Create descriptive message
+                if logical_classes == 0:
+                    description = f'Zero logical classes (treated as 1): {short_classes} short classes = {actual_percentage:.1f}x vs {threshold_percentage:.1f}x threshold'
+                else:
+                    description = f'Combined class obfuscation: {actual_percentage:.1%} vs {threshold_percentage:.1%} threshold'
+                
+                parameter_evaluations.append({
+                    'parameter': param_name,
+                    'threshold': threshold_value,
+                    'actual_value': f"{actual_percentage:.3f}x",
+                    'passed': passed,
+                    'description': description
+                })
+                continue
+        
+        # Regular numeric comparison
+        if isinstance(threshold_value, (int, float)) or str(threshold_value).isdigit():
+            threshold_num = float(threshold_value)
+            passed = actual_value >= threshold_num
+            parameter_evaluations.append({
+                'parameter': param_name,
+                'threshold': threshold_value,
+                'actual_value': actual_value,
+                'passed': passed,
+                'description': f'{param_name}: {actual_value} vs {threshold_value} threshold'
+            })
+    
+    # Count how many parameters passed
+    parameters_passed = sum(1 for eval_result in parameter_evaluations if eval_result['passed'])
+    total_enabled_parameters = len(enabled_parameters)
+    
+    # Define thresholds based on enabled parameters
+    if total_enabled_parameters == 0:
+        return {
+            'status': 'NO_ENABLED_PARAMETERS',
+            'margin': 0,
+            'parameters_passed': 0,
+            'total_enabled_parameters': 0,
+            'enabled_parameters': [],
+            'parameter_evaluations': [],
+            'optimal_threshold': 0,
+            'minimal_threshold': 0,
+            'margin_description': 'No parameters enabled in rule configuration'
+        }
+    
+    # Calculate percentage-based thresholds
+    # OPTIMAL: 60% of enabled parameters should pass
+    # MINIMAL: 30% of enabled parameters should pass (minimum 1)
+    optimal_threshold = max(1, int(total_enabled_parameters * 0.6))
+    minimal_threshold = max(1, int(total_enabled_parameters * 0.3))
+    
+    # Determine status and margins
+    if parameters_passed >= optimal_threshold:
+        margin_from_optimal = parameters_passed - optimal_threshold
+        percentage_above = (parameters_passed / total_enabled_parameters) * 100
+        status = 'OPTIMAL'
+        margin = margin_from_optimal
+        margin_description = f'OPTIMAL: {parameters_passed}/{total_enabled_parameters} parameters passed ({percentage_above:.1f}%), {margin_from_optimal} above optimal threshold'
+    elif parameters_passed >= minimal_threshold:
+        margin_from_optimal = optimal_threshold - parameters_passed
+        margin_from_minimal = parameters_passed - minimal_threshold
+        percentage_achieved = (parameters_passed / total_enabled_parameters) * 100
+        status = 'MINIMAL'
+        margin = margin_from_optimal  # How far from optimal
+        margin_description = f'MINIMAL: {parameters_passed}/{total_enabled_parameters} parameters passed ({percentage_achieved:.1f}%), {margin_from_optimal} short of optimal, {margin_from_minimal} above minimal'
+    else:
+        margin_from_minimal = minimal_threshold - parameters_passed
+        margin_from_optimal = optimal_threshold - parameters_passed
+        percentage_achieved = (parameters_passed / total_enabled_parameters) * 100
+        status = 'FAILED'
+        margin = margin_from_minimal  # How far from minimal
+        margin_description = f'FAILED: {parameters_passed}/{total_enabled_parameters} parameters passed ({percentage_achieved:.1f}%), {margin_from_minimal} short of minimal, {margin_from_optimal} short of optimal'
+    
+    return {
+        'status': status,
+        'margin': margin,
+        'parameters_passed': parameters_passed,
+        'total_enabled_parameters': total_enabled_parameters,
+        'enabled_parameters': enabled_parameters,
+        'parameter_evaluations': parameter_evaluations,
+        'optimal_threshold': optimal_threshold,
+        'minimal_threshold': minimal_threshold,
+        'margin_description': margin_description,
+        'percentage_achieved': (parameters_passed / total_enabled_parameters) * 100 if total_enabled_parameters > 0 else 0
+    }
+
+def create_comprehensive_final_summary(result_data):
+    """
+    Create a comprehensive final summary that includes:
+    1. Manual Investigation Summary
+    2. Strict YARA Summary  
+    3. APKiD Analysis Summary
+    4. R8 Marker Analysis Summary
+    
+    Enhanced with rule-based parameter margin calculation.
+    """
+    import json
+    import os
+    
+    summary = {
+        'manual_investigation_summary': {
+            'rules_passed': [],
+            'margin_status': {
+                'status': 'UNKNOWN',
+                'margin': 0,
+                'parameters_passed': 0,
+                'total_enabled_parameters': 0,
+                'enabled_parameters': [],
+                'parameter_evaluations': [],
+                'optimal_threshold': 0,
+                'minimal_threshold': 0,
+                'margin_description': 'Analysis not available'
+            },
+            'obfuscation_percentages': {
+                'class_name_obfuscation': 0.0,
+                'method_name_obfuscation': 0.0
+            },
+            'analysis_available': False
+        },
+        'strict_yara_summary': {
+            'rules_passed': [],
+            'margin_status': {
+                'status': 'UNKNOWN',
+                'margin': 0,
+                'parameters_passed': 0,
+                'total_enabled_parameters': 0,
+                'enabled_parameters': [],
+                'parameter_evaluations': [],
+                'optimal_threshold': 0,
+                'minimal_threshold': 0,
+                'margin_description': 'Analysis not available'
+            },
+            'analysis_available': False
+        },
+        'apkid_analysis_summary': {
+            'manipulator_detected': False,
+            'obfuscator_assessment': 'UNKNOWN',
+            'libs_obfuscated_status': 'UNKNOWN',
+            'compiler': 'UNKNOWN',
+            'arxan_indicators': [],
+            'analysis_available': False
+        },
+        'r8_marker_analysis': {
+            'marker_found': False,
+            'marker_status': 'UNKNOWN',
+            'compilation_details': {},
+            'analysis_available': False
+        }
+    }
+    
+    # Load rule configuration for parameter-based margin calculation
+    rule_config = None
+    config_path = os.path.join(os.path.dirname(__file__), 'obfuscation_rules_config.json')
+    try:
+        with open(config_path, 'r') as f:
+            rule_config = json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load rule configuration: {e}")
+    
+    # Check if comprehensive analysis is available
+    comprehensive_result = result_data.get('comprehensive_massive_obf_result')
+    if not comprehensive_result or not comprehensive_result.get('success'):
+        return summary
+
+    parsed_analysis = comprehensive_result.get('parsed_analysis', {})
+    final_dual_analysis = parsed_analysis.get('final_dual_analysis', {})
+    detailed_results = parsed_analysis.get('detailed_results', [])
+    
+    # Determine DEX count for rule selection
+    dex_count = final_dual_analysis.get('total_dex_files', 1)
+    
+    # Determine rule category based on logical classes and DEX count (matching comprehensive analysis logic)
+    manual_logical_classes = final_dual_analysis.get('aggregated_analysis', {}).get('manual_inspection', {}).get('logical_classes', 0)
+    if manual_logical_classes < 50:
+        rule_category = 'small_dex'
+    elif dex_count == 1:
+        rule_category = 'single_dex'
+    else:
+        rule_category = 'multi_dex'    # 1. Manual Investigation Summary
+    if final_dual_analysis and final_dual_analysis.get('aggregated_analysis', {}).get('manual_inspection'):
+        manual_data = final_dual_analysis['aggregated_analysis']['manual_inspection']
+        summary['manual_investigation_summary']['analysis_available'] = True
+        
+        # Extract actual rule names that passed from raw stdout
+        rules_passed = []
+        raw_stdout = comprehensive_result.get('stdout', '')
+        
+        # NEW LOGIC: Check actual parameter evaluation results instead of just rule selection
+        # Look for rules that actually PASSED their parameter evaluation, not just were selected
+        
+        # Check if manual investigation optimal/minimal rules actually passed their parameter evaluation
+        manual_optimal_rule_passed = False
+        manual_minimal_rule_passed = False
+        
+        # Get the actual parameter evaluation from our margin calculation
+        if rule_config and rule_config.get('rules', {}).get(rule_category, {}).get('manual_investigation'):
+            rule_optimal = rule_config['rules'][rule_category]['manual_investigation'].get('optimal')
+            rule_minimal = rule_config['rules'][rule_category]['manual_investigation'].get('minimal')
+            
+            # Check optimal rule
+            if rule_optimal:
+                optimal_result = calculate_rule_parameter_margin_status(rule_optimal, manual_data, "manual_investigation")
+                if optimal_result['parameters_passed'] >= optimal_result['optimal_threshold']:
+                    manual_optimal_rule_passed = True
+                    # Extract the specific rule name from stdout
+                    optimal_rule_match = re.search(r'Selected optimal rule: (Manual Investigation[^\n]+)', raw_stdout)
+                    if optimal_rule_match:
+                        rules_passed.append(optimal_rule_match.group(1).strip())
+                    else:
+                        rules_passed.append("Manual Investigation Optimal Rule")
+            
+            # Check minimal rule (only if optimal didn't pass)
+            if not manual_optimal_rule_passed and rule_minimal:
+                minimal_result = calculate_rule_parameter_margin_status(rule_minimal, manual_data, "manual_investigation")
+                if minimal_result['parameters_passed'] >= minimal_result['minimal_threshold']:
+                    manual_minimal_rule_passed = True
+                    # Extract the specific rule name from stdout
+                    minimal_rule_match = re.search(r'Selected minimal rule: (Manual Investigation[^\n]+)', raw_stdout)
+                    if minimal_rule_match:
+                        rules_passed.append(minimal_rule_match.group(1).strip())
+                    else:
+                        rules_passed.append("Manual Investigation Minimal Rule")
+        
+        # If no rules passed parameter evaluation, fall back to individual methods for backward compatibility
+        if not rules_passed:
+            methods_passed = manual_data.get('methods_passed', [])
+            if methods_passed:
+                rules_passed = methods_passed  # Keep old behavior as fallback
+        
+        summary['manual_investigation_summary']['rules_passed'] = rules_passed
+        
+        # NEW: Calculate margin status based on enabled rule parameters
+        manual_margin_status = {'status': 'UNKNOWN', 'margin': 0, 'parameters_passed': 0, 
+                               'total_enabled_parameters': 0, 'margin_description': 'Rule config not available'}
+        
+        # Determine rule category based on logical classes for manual investigation
+        manual_logical_classes = manual_data.get('logical_classes', 0)
+        if manual_logical_classes < 50:
+            manual_rule_category = 'small_dex'
+        elif dex_count == 1:
+            manual_rule_category = 'single_dex'
+        else:
+            manual_rule_category = 'multi_dex'
+        
+        # Store the category in the summary
+        summary['manual_investigation_summary']['selected_rule_category'] = manual_rule_category
+        
+        # Get appropriate rule configuration for manual investigation
+        if rule_config and rule_config.get('rules', {}).get(manual_rule_category, {}).get('manual_investigation'):
+            # Try optimal rule first, fall back to minimal
+            rule_optimal = rule_config['rules'][manual_rule_category]['manual_investigation'].get('optimal')
+            rule_minimal = rule_config['rules'][manual_rule_category]['manual_investigation'].get('minimal')
+            
+            # Choose rule based on logical classes and which rule triggered
+            logical_classes = manual_data.get('logical_classes', 0)
+            selected_rule = None
+            
+            # If optimal rule triggered, use optimal config
+            if any("optimal" in rule.lower() for rule in rules_passed):
+                selected_rule = rule_optimal
+            # If minimal rule triggered, use minimal config
+            elif any("minimal" in rule.lower() for rule in rules_passed):
+                selected_rule = rule_minimal
+            # If no specific rule triggered, choose based on logical classes
+            elif rule_optimal:
+                applicable_when = rule_optimal.get('applicable_when', {})
+                min_classes = applicable_when.get('logical_classes_min')
+                max_classes = applicable_when.get('logical_classes_max')
+                
+                # Check if rule applies based on logical class count
+                if min_classes is not None and logical_classes >= min_classes:
+                    selected_rule = rule_optimal
+                elif max_classes is not None and logical_classes <= max_classes:
+                    selected_rule = rule_optimal
+            elif rule_minimal:
+                applicable_when = rule_minimal.get('applicable_when', {})
+                min_classes = applicable_when.get('logical_classes_min')
+                max_classes = applicable_when.get('logical_classes_max')
+                
+                # Check if rule applies based on logical class count
+                if min_classes is not None and logical_classes >= min_classes:
+                    selected_rule = rule_minimal
+                elif max_classes is not None and logical_classes <= max_classes:
+                    selected_rule = rule_minimal
+            
+            if selected_rule:
+                manual_margin_status = calculate_rule_parameter_margin_status(
+                    selected_rule, manual_data, "manual_investigation"
+                )
+        
+        summary['manual_investigation_summary']['margin_status'] = manual_margin_status
+        
+        # EXCEPTION RULE: Very large app with high logical classes
+        # Apply to single_dex and multi_dex manual investigation when no rules passed
+        if ((manual_rule_category == 'single_dex' or manual_rule_category == 'multi_dex') and 
+            manual_margin_status['status'] == 'FAILED' and 
+            manual_margin_status['parameters_passed'] == 0):
+            
+            # Get zebra classes and logical classes for exception rule
+            zebra_symbol_classes = manual_data.get('zebra_symbol_classes', 0)
+            logical_classes = manual_data.get('logical_classes', 0)
+            
+            # Get marker type from R8 analysis
+            marker_type = 'Unknown'
+            if summary.get('r8_marker_analysis', {}).get('compilation_details', {}).get('marker_type'):
+                marker_type = summary['r8_marker_analysis']['compilation_details']['marker_type']
+            
+            # Calculate combined class rule percentage
+            single_classes = manual_data.get('single_classes', 0)
+            two_digit_classes = manual_data.get('two_digit_classes', 0) 
+            three_char_classes = manual_data.get('three_char_classes', 0)
+            total_short_classes = single_classes + two_digit_classes + three_char_classes
+            
+            # Calculate percentage with zero logical classes fix
+            effective_logical_classes = max(logical_classes, 1)
+            combined_class_percentage = (total_short_classes / effective_logical_classes) * 100
+            
+            # Exception rule conditions:
+            # 1. Logical classes > 1000 (instead of zebra classes)
+            # 2. Marker is not D8 or marker is not detected (Unknown/custom obfuscator)
+            # 3. Combined class rule is at least 10% or more
+            if (logical_classes > 1000 and 
+                marker_type != 'D8' and 
+                combined_class_percentage >= 10.0):
+                
+                # Override the failed status with exception rule pass
+                manual_margin_status['status'] = 'EXCEPTION_PASS'
+                manual_margin_status['parameters_passed'] = 1
+                manual_margin_status['margin_description'] = f'EXCEPTION RULE PASSED: Very large app with high logical classes ({logical_classes} logical classes, {zebra_symbol_classes} zebra classes, {combined_class_percentage:.1f}% obfuscation, {marker_type} marker)'
+                manual_margin_status['exception_rule_applied'] = True
+                manual_margin_status['exception_details'] = {
+                    'logical_classes': logical_classes,
+                    'zebra_classes': zebra_symbol_classes,
+                    'marker_type': marker_type,
+                    'combined_class_percentage': combined_class_percentage,
+                    'reason': 'very large app with high logical classes'
+                }
+                
+                # Update the summary with the exception pass
+                summary['manual_investigation_summary']['margin_status'] = manual_margin_status
+        
+        # Calculate obfuscation percentages
+        total_classes = manual_data.get('total_classes', 0)
+        logical_classes = manual_data.get('logical_classes', 0) 
+        zebra_symbol_classes = manual_data.get('zebra_symbol_classes', 0)
+        short_methods = manual_data.get('single_methods', 0)
+        
+        # Sum of all short class patterns
+        single_classes = manual_data.get('single_classes', 0)
+        two_digit_classes = manual_data.get('two_digit_classes', 0) 
+        three_char_classes = manual_data.get('three_char_classes', 0)
+        total_short_classes = single_classes + two_digit_classes + three_char_classes
+        
+        # Class name obfuscation: zebra/symbol classes / total short obfuscated classes
+        if total_short_classes > 0:
+            summary['manual_investigation_summary']['obfuscation_percentages']['class_name_obfuscation'] = (zebra_symbol_classes / total_short_classes) * 100
+        
+        # Method name obfuscation: short methods / logical classes
+        if logical_classes > 0:
+            summary['manual_investigation_summary']['obfuscation_percentages']['method_name_obfuscation'] = (short_methods / logical_classes) * 100
+    
+    # 2. Strict YARA Summary
+    if final_dual_analysis and final_dual_analysis.get('aggregated_analysis', {}).get('yara_strict'):
+        yara_data = final_dual_analysis['aggregated_analysis']['yara_strict']
+        summary['strict_yara_summary']['analysis_available'] = True
+        
+        # Extract actual rule names that passed from raw stdout
+        rules_passed = []
+        raw_stdout = comprehensive_result.get('stdout', '')
+        
+        # NEW LOGIC: Check actual parameter evaluation results instead of just rule selection
+        # Look for rules that actually PASSED their parameter evaluation, not just were selected
+        
+        # Check if YARA strict optimal rule actually passed its parameter evaluation
+        yara_optimal_rule_passed = False
+        yara_minimal_rule_passed = False
+        
+        # Get the actual parameter evaluation from our margin calculation
+        if rule_config and rule_config.get('rules', {}).get(rule_category, {}).get('yara_strict'):
+            rule_optimal = rule_config['rules'][rule_category]['yara_strict'].get('optimal')
+            rule_minimal = rule_config['rules'][rule_category]['yara_strict'].get('minimal')
+            
+            # Check optimal rule
+            if rule_optimal:
+                optimal_result = calculate_rule_parameter_margin_status(rule_optimal, yara_data, "yara_strict")
+                if optimal_result['parameters_passed'] >= optimal_result['optimal_threshold']:
+                    yara_optimal_rule_passed = True
+                    # Extract the specific rule name from stdout
+                    optimal_rule_match = re.search(r'Selected optimal rule: (YARA Strict[^\n]+)', raw_stdout)
+                    if optimal_rule_match:
+                        rules_passed.append(optimal_rule_match.group(1).strip())
+                    else:
+                        rules_passed.append("YARA Strict Optimal Rule")
+            
+            # Check minimal rule (only if optimal didn't pass)
+            if not yara_optimal_rule_passed and rule_minimal:
+                minimal_result = calculate_rule_parameter_margin_status(rule_minimal, yara_data, "yara_strict")
+                if minimal_result['parameters_passed'] >= minimal_result['minimal_threshold']:
+                    yara_minimal_rule_passed = True
+                    # Extract the specific rule name from stdout
+                    minimal_rule_match = re.search(r'Selected minimal rule: (YARA Strict[^\n]+)', raw_stdout)
+                    if minimal_rule_match:
+                        rules_passed.append(minimal_rule_match.group(1).strip())
+                    else:
+                        rules_passed.append("YARA Strict Minimal Rule")
+        
+        # If no rules passed parameter evaluation, fall back to individual methods for backward compatibility
+        if not rules_passed:
+            methods_passed = yara_data.get('methods_passed', [])
+            if methods_passed:
+                rules_passed = methods_passed  # Keep old behavior as fallback
+        
+        summary['strict_yara_summary']['rules_passed'] = rules_passed
+        
+        # NEW: Calculate margin status based on enabled rule parameters
+        yara_margin_status = {'status': 'UNKNOWN', 'margin': 0, 'parameters_passed': 0, 
+                             'total_enabled_parameters': 0, 'margin_description': 'Rule config not available'}
+        
+        # Determine rule category based on logical classes for YARA strict
+        yara_logical_classes = yara_data.get('logical_classes', 0)
+        if yara_logical_classes < 50:
+            yara_rule_category = 'small_dex'
+        elif dex_count == 1:
+            yara_rule_category = 'single_dex'
+        else:
+            yara_rule_category = 'multi_dex'
+        
+        # Get appropriate rule configuration for YARA strict
+        if rule_config and rule_config.get('rules', {}).get(yara_rule_category, {}).get('yara_strict'):
+            # Try optimal rule first, fall back to minimal
+            rule_optimal = rule_config['rules'][yara_rule_category]['yara_strict'].get('optimal')
+            rule_minimal = rule_config['rules'][yara_rule_category]['yara_strict'].get('minimal')
+            
+            # Choose rule based on logical classes and which rule triggered
+            logical_classes = yara_data.get('logical_classes', 0)
+            selected_rule = None
+            
+            # If optimal rule triggered, use optimal config
+            if any("optimal" in rule.lower() for rule in rules_passed):
+                selected_rule = rule_optimal
+            # If minimal rule triggered, use minimal config
+            elif any("minimal" in rule.lower() for rule in rules_passed):
+                selected_rule = rule_minimal
+            # If no specific rule triggered, choose based on logical classes
+            elif rule_optimal:
+                applicable_when = rule_optimal.get('applicable_when', {})
+                min_classes = applicable_when.get('logical_classes_min')
+                max_classes = applicable_when.get('logical_classes_max')
+                
+                # Check if rule applies based on logical class count
+                if min_classes is not None and logical_classes >= min_classes:
+                    selected_rule = rule_optimal
+                elif max_classes is not None and logical_classes <= max_classes:
+                    selected_rule = rule_optimal
+            elif rule_minimal:
+                applicable_when = rule_minimal.get('applicable_when', {})
+                min_classes = applicable_when.get('logical_classes_min')
+                max_classes = applicable_when.get('logical_classes_max')
+                
+                # Check if rule applies based on logical class count
+                if min_classes is not None and logical_classes >= min_classes:
+                    selected_rule = rule_minimal
+                elif max_classes is not None and logical_classes <= max_classes:
+                    selected_rule = rule_minimal
+            
+            if selected_rule:
+                yara_margin_status = calculate_rule_parameter_margin_status(
+                    selected_rule, yara_data, "yara_strict"
+                )
+        
+        summary['strict_yara_summary']['margin_status'] = yara_margin_status
+    
+    # 3. APKiD Analysis Summary
+    apkid_result = result_data.get('apkid_result')
+    if apkid_result and apkid_result.get('success') and apkid_result.get('parsed_output'):
+        summary['apkid_analysis_summary']['analysis_available'] = True
+        apkid_data = apkid_result['parsed_output']
+        
+        # Check for manipulator detection
+        manipulator_found = False
+        arxan_indicators = []
+        
+        # Check all files for manipulator and Arxan indicators
+        for file_data in apkid_data.get('files', []):
+            matches = file_data.get('matches', {})
+            filename = file_data.get('filename', 'unknown')
+            
+            # Check for manipulator key in matches
+            if 'manipulator' in matches:
+                manipulator_found = True
+            
+            # Check for Arxan in all detection categories
+            for category, detections in matches.items():
+                if isinstance(detections, list):
+                    for detection in detections:
+                        if 'arxan' in detection.lower():
+                            arxan_indicators.append({
+                                'file': filename,
+                                'detection': detection
+                            })
+        
+        summary['apkid_analysis_summary']['manipulator_detected'] = manipulator_found
+        summary['apkid_analysis_summary']['arxan_indicators'] = arxan_indicators
+        
+        # NEW OBFUSCATOR ASSESSMENT LOGIC
+        # Get R8 marker information
+        r8_result = result_data.get('r8_extract_marker_result')
+        r8_marker_found = False
+        marker_type = 'Unknown'
+        
+        if r8_result and r8_result.get('success') and r8_result.get('parsed_marker'):
+            marker_data = r8_result['parsed_marker']
+            r8_marker_found = marker_data.get('marker_type') is not None and marker_data.get('marker_type') != ''
+            if r8_marker_found:
+                marker_type = marker_data.get('marker_type', 'Unknown')
+        
+        # Check if manual investigation rules passed
+        manual_passed = summary['manual_investigation_summary']['margin_status']['status'] in ['OPTIMAL', 'MINIMAL']
+        
+        # Implement new obfuscator assessment rules
+        if not r8_marker_found:  # marker_found == false
+            # Rule 1: Search APKiD results for *.dex files and check for Arxan detection
+            arxan_in_dex_files = False
+            
+            # Check all files in APKiD results for .dex files with Arxan detection
+            for file_data in apkid_data.get('files', []):
+                filename = file_data.get('filename', '')
+                if filename.endswith('.dex'):
+                    matches = file_data.get('matches', {})
+                    # Check all detection categories for Arxan
+                    for category, detections in matches.items():
+                        if isinstance(detections, list):
+                            for detection in detections:
+                                if 'arxan' in detection.lower():
+                                    arxan_in_dex_files = True
+                                    break
+                        if arxan_in_dex_files:
+                            break
+                    if arxan_in_dex_files:
+                        break
+            
+            if arxan_in_dex_files:
+                # If Arxan detected in any .dex file section
+                summary['apkid_analysis_summary']['obfuscator_assessment'] = 'Arxan (Confirmed)'
+            else:
+                # If no Arxan detected in .dex files, check manual investigation
+                if manual_passed:
+                    # If manual investigation shows rules passed
+                    summary['apkid_analysis_summary']['obfuscator_assessment'] = 'Arxan or DexGuard (Possibly)'
+                else:
+                    # If manual investigation doesn't show rules passed
+                    summary['apkid_analysis_summary']['obfuscator_assessment'] = 'Unknown'
+        
+        else:  # marker_found == true
+            # Rule 2: If marker is detected, use marker type from r8_marker_analysis
+            summary['apkid_analysis_summary']['obfuscator_assessment'] = f'{marker_type} (Standard)'
+        
+        # Check for library obfuscation
+        so_files_with_obfuscation = []
+        for file_data in apkid_data.get('files', []):
+            filename = file_data.get('filename', '')
+            if filename.endswith('.so'):
+                matches = file_data.get('matches', {})
+                # Check if obfuscator category exists and has any detections
+                obfuscator_matches = matches.get('obfuscator', [])
+                if obfuscator_matches:  # If any obfuscator detections found
+                    so_files_with_obfuscation.append(filename)
+        
+        if so_files_with_obfuscation:
+            summary['apkid_analysis_summary']['libs_obfuscated_status'] = 'Libs obfuscated'
+        else:
+            summary['apkid_analysis_summary']['libs_obfuscated_status'] = 'No library obfuscation detected'
+        
+        # SIMPLE COMPILER DETECTION LOGIC
+        # Check R8 marker status to determine compiler value
+        r8_result = result_data.get('r8_extract_marker_result')
+        r8_marker_found = False
+        
+        if r8_result and r8_result.get('success') and r8_result.get('parsed_marker'):
+            marker_data = r8_result['parsed_marker']
+            r8_marker_found = marker_data.get('marker_type') is not None and marker_data.get('marker_type') != ''
+        
+        if not r8_marker_found:  # marker_found == false
+            # Take compiler information from APKiD result
+            compiler_found = 'UNKNOWN'
+            
+            # Search all files for compiler detection in APKiD results
+            for file_data in apkid_data.get('files', []):
+                matches = file_data.get('matches', {})
+                
+                # Check for compiler key in matches
+                if 'compiler' in matches:
+                    compiler_detections = matches['compiler']
+                    if isinstance(compiler_detections, list) and compiler_detections:
+                        # Take the first compiler found
+                        compiler_found = compiler_detections[0]
+                        break
+            
+            summary['apkid_analysis_summary']['compiler'] = compiler_found
+            
+        else:  # marker_found == true
+            # Use marker_type from r8_extract_marker_result
+            marker_type = marker_data.get('marker_type', 'UNKNOWN')
+            summary['apkid_analysis_summary']['compiler'] = marker_type
+    
+    # 4. R8 Marker Analysis
+    r8_result = result_data.get('r8_extract_marker_result')
+    if r8_result and r8_result.get('success'):
+        summary['r8_marker_analysis']['analysis_available'] = True
+        
+        if r8_result.get('parsed_marker'):
+            marker_data = r8_result['parsed_marker']
+            # Check if marker was found by looking for marker_type field (successful parsing)
+            # or explicit marker_found field (when no marker found)
+            marker_found = marker_data.get('marker_type') is not None and marker_data.get('marker_type') != ''
+            
+            summary['r8_marker_analysis']['marker_found'] = marker_found
+            
+            if marker_found:
+                summary['r8_marker_analysis']['marker_status'] = 'R8/D8/L8 marker found'
+                summary['r8_marker_analysis']['compilation_details'] = {
+                    'compilation_mode': marker_data.get('compilation-mode'),
+                    'has_checksums': marker_data.get('has-checksums'),
+                    'min_api': marker_data.get('min-api'),
+                    'r8_mode': marker_data.get('r8-mode'),
+                    'marker_type': marker_data.get('marker_type')
+                }
+            else:
+                summary['r8_marker_analysis']['marker_status'] = 'No R8/D8/L8 marker found, Possibly a custom obfuscator (Arxan or DexGuard)'
+        else:
+            summary['r8_marker_analysis']['marker_found'] = False
+            summary['r8_marker_analysis']['marker_status'] = 'Marker analysis failed'
+    
+    return summary
 
 def create_final_dual_analysis_summary(detailed_results):
-    """Create final dual analysis summary by aggregating all DEX file analyses"""
+    """Create final dual analysis summary by aggregating all DEX file analyses
+    
+    COMMENTED OUT - TO BE REPLACED WITH NEW OBFUSCATION METHODS
+    
+    This function was responsible for aggregating individual DEX analysis results
+    into a comprehensive summary for APK-level decision making.
+    """
+    # try:
+    #     final_summary = {
+    #         'total_dex_files': len(detailed_results),
+    #         'aggregated_analysis': {
+    #             'yara_strict': { ... },
+    #             'manual_inspection': { ... },
+    #             'effectiveness_gap': { ... }
+    #         },
+    #         'apk_level_decision': { ... },
+    #         'per_dex_summary': []
+    #     }
+    #     ... extensive aggregation logic ...
+    #     return final_summary
+    # except Exception as e:
+    #     return {
+    #         'parse_error': f'Failed to create final dual analysis summary: {e}',
+    #         'total_dex_files': len(detailed_results) if detailed_results else 0
+    #     }
+    
+    # Placeholder return for commented out function
+    return {
+        'total_dex_files': len(detailed_results) if detailed_results else 0,
+        'aggregated_analysis': {
+            'yara_strict': {'should_trigger': False},
+            'manual_inspection': {'should_trigger': False},
+            'effectiveness_gap': {'overall_agreement': 'DISABLED'}
+        },
+        'apk_level_decision': {
+            'yara_strict_final_trigger': False,
+            'manual_inspection_final_trigger': False,
+            'final_agreement': 'DISABLED'
+        },
+        'per_dex_summary': [],
+        'parse_note': 'Final dual analysis summary is currently disabled - to be replaced with new methods'
+    }
     try:
         final_summary = {
             'total_dex_files': len(detailed_results),
@@ -1212,10 +2788,75 @@ def format_dual_analysis_summary(parsed_result):
     output.append("="*80 + "\n")
     
     return "\n".join(output)
+    if 'dual_analysis' not in parsed_result:
+        return "\n❌ No dual analysis data available\n"
+    
+    dual = parsed_result['dual_analysis']
+    
+    output = [
+        "\n" + "="*80,
+        "📊 DUAL ANALYSIS EFFECTIVENESS COMPARISON",
+        "="*80,
+        "",
+        "📈 YARA-STRICT DETECTION:",
+        f"   Two-digit classes: {dual['yara_strict']['two_digit_classes']:,}",
+        f"   Single methods: {dual['yara_strict']['single_methods']:,}",
+        f"   Methods passed: {dual['yara_strict']['methods_passed']}/4",
+        f"   Rule triggers: {'🔴 YES' if dual['yara_strict']['should_trigger'] else '🟢 NO'}",
+        "",
+        "🔍 MANUAL INSPECTION DETECTION:",
+        f"   Two-digit classes: {dual['manual_inspection']['two_digit_classes']:,}",
+        f"   Single methods: {dual['manual_inspection']['single_methods']:,}",
+        f"   Methods passed: {dual['manual_inspection']['methods_passed']}/4",
+        f"   Rule triggers: {'🔴 YES' if dual['manual_inspection']['should_trigger'] else '🟢 NO'}",
+        "",
+        "⚖️ EFFECTIVENESS COMPARISON:",
+        f"   Two-digit class ratio: {dual['effectiveness_gap']['two_digit_ratio']:.2f}x",
+        f"   Method detection ratio: {dual['effectiveness_gap']['single_method_ratio']:.2f}x",
+        f"   Agreement: {dual['effectiveness_gap']['agreement']}",
+        "",
+        "🎯 KEY INSIGHTS:"
+    ]
+    
+    # Add insights based on the data
+    yara_classes = dual['yara_strict']['two_digit_classes']
+    manual_classes = dual['manual_inspection']['two_digit_classes']
+    ratio = dual['effectiveness_gap']['two_digit_ratio']
+    
+    if ratio > 10:
+        output.append(f"   • Manual inspection finds {ratio:.1f}x more obfuscated classes")
+        output.append("   • YARA patterns have significant detection limitations")
+    elif ratio > 2:
+        output.append(f"   • Manual inspection moderately outperforms YARA ({ratio:.1f}x)")
+    elif ratio == 1:
+        output.append("   • Both methods show equivalent detection rates")
+    
+    if dual['effectiveness_gap']['agreement'] == 'DIFFERENT':
+        output.append("   • Methods disagree on final rule triggering")
+        output.append("   • Consider manual inspection for comprehensive analysis")
+    else:
+        output.append("   • Both methods agree on final rule triggering")
+    
+    if manual_classes > 1000:
+        output.append(f"   • High obfuscation detected: {manual_classes:,} two-digit classes")
+    
+    output.append("="*80 + "\n")
+    
+    return "\n".join(output)
 
 
 def format_comprehensive_dual_analysis_summary(parsed_result):
-    """Format comprehensive dual analysis summary with all pattern types"""
+    """Format comprehensive dual analysis summary with all pattern types
+    
+    COMMENTED OUT - TO BE REPLACED WITH NEW OBFUSCATION METHODS
+    """
+    # if 'dual_analysis' not in parsed_result:
+    #     return "\n❌ No comprehensive dual analysis data available\n"
+    # ... extensive formatting logic ...
+    # return "\n".join(output)
+    
+    # Placeholder return for commented out function
+    return "\n❌ Comprehensive dual analysis formatting is currently disabled - to be replaced with new methods\n"
     if 'dual_analysis' not in parsed_result:
         return "\n❌ No comprehensive dual analysis data available\n"
     
@@ -1374,6 +3015,9 @@ def analyze_single_apk(apk_path, r8_jar_path, include_comprehensive=False, sdk_c
             sdk_config=sdk_config
         )
         result_data['comprehensive_massive_obf_result'] = comprehensive_result
+        
+        # Create comprehensive final summary
+        result_data['comprehensive_final_summary'] = create_comprehensive_final_summary(result_data)
     
     return result_data
 
@@ -1594,6 +3238,32 @@ def main():
                     sdk_config=sdk_config
                 )
                 result['comprehensive_massive_obf_result'] = comprehensive_result
+                
+                # We need APKiD and R8 results for complete final summary, so run them for comprehensive-only mode too
+                apkid_result = run_command_with_timeout(
+                    [sys.executable, '-m', 'apkid', '-j', apk_path],
+                    timeout=30
+                )
+                if apkid_result['success'] and apkid_result['stdout']:
+                    apkid_result['parsed_output'] = parse_apkid_json_output(apkid_result['stdout'])
+                else:
+                    apkid_result['parsed_output'] = None
+                result['apkid_result'] = apkid_result
+                
+                # Run R8 marker analysis if available
+                if args.r8_jar and os.path.exists(args.r8_jar):
+                    r8_result = run_command_with_timeout(
+                        ['java', '-cp', args.r8_jar, 'com.android.tools.r8.ExtractMarker', apk_path],
+                        timeout=10
+                    )
+                    if r8_result['success'] and r8_result['stdout']:
+                        r8_result['parsed_marker'] = parse_r8_marker_output(r8_result['stdout'])
+                    else:
+                        r8_result['parsed_marker'] = None
+                    result['r8_extract_marker_result'] = r8_result
+                
+                # Create comprehensive final summary
+                result['comprehensive_final_summary'] = create_comprehensive_final_summary(result)
             else:
                 # Run normal analysis with optional comprehensive
                 result = analyze_single_apk(apk_path, args.r8_jar, include_comprehensive, sdk_config)
@@ -1682,40 +3352,45 @@ def main():
     successful_r8 = sum(1 for r in results if r.get('r8_extract_marker_result', {}).get('success', False))
     successful_comprehensive = sum(1 for r in results if r.get('comprehensive_massive_obf_result', {}).get('success', False))
     
-    # Count comprehensive analysis results
-    massive_obf_detected_apkid = 0
-    massive_obf_detected_manual = 0
-    consistent_results = 0
+    # Count comprehensive analysis results for YARA Strict and Manual Investigation
+    obfuscation_detected_by_yara_strict = 0
+    obfuscation_detected_by_manual_investigation = 0
+    obfuscation_not_detected_by_either = 0
+    obfuscation_only_detected_by_yara_strict = 0
+    obfuscation_only_detected_by_manual_investigation = 0
     
     for r in results:
-        # Count APKiD detections from regular APKiD scans
-        apkid_result = r.get('apkid_result')
-        if apkid_result and apkid_result.get('success') and apkid_result.get('parsed_output'):
-            parsed_apkid = apkid_result['parsed_output']
-            if parsed_apkid and 'files' in parsed_apkid:
-                # Check if any file has massive name obfuscation detection
-                for file_info in parsed_apkid['files']:
-                    matches = file_info.get('matches', {})
-                    obfuscator_matches = matches.get('obfuscator', [])
-                    for match in obfuscator_matches:
-                        if 'massive name obfuscation' in match.lower():
-                            massive_obf_detected_apkid += 1
-                            break  # Count once per APK, not per file
-                    if any('massive name obfuscation' in match.lower() for match in obfuscator_matches):
-                        break  # Already counted this APK
-        
-        # Count comprehensive analysis results
         comp_result = r.get('comprehensive_massive_obf_result')
         if comp_result and comp_result.get('success') and comp_result.get('parsed_analysis'):
-            analysis = comp_result['parsed_analysis']
-            # Don't double-count APKiD detections if we already counted them above
-            if not apkid_result or not apkid_result.get('success'):
-                if analysis.get('apkid_detected_massive_obf'):
-                    massive_obf_detected_apkid += 1
-            if analysis.get('manual_analysis_result') == 'SHOULD_TRIGGER':
-                massive_obf_detected_manual += 1
-            if analysis.get('consistency_check') == 'CONSISTENT':
-                consistent_results += 1
+            
+            # Get the comprehensive final summary for status information
+            final_summary = r.get('comprehensive_final_summary', {})
+            
+            # Check YARA Strict status (FIXED: correct key name)
+            yara_summary = final_summary.get('strict_yara_summary', {})
+            yara_margin_status = yara_summary.get('margin_status', {})
+            yara_detected = yara_margin_status.get('status', 'UNKNOWN') in ['OPTIMAL', 'MINIMAL', 'EXCEPTION_PASS']
+            
+            # Check Manual Investigation status  
+            manual_summary = final_summary.get('manual_investigation_summary', {})
+            manual_margin_status = manual_summary.get('margin_status', {})
+            manual_detected = manual_margin_status.get('status', 'UNKNOWN') in ['OPTIMAL', 'MINIMAL', 'EXCEPTION_PASS']
+            
+            # Count detection patterns
+            if yara_detected:
+                obfuscation_detected_by_yara_strict += 1
+            
+            if manual_detected:
+                obfuscation_detected_by_manual_investigation += 1
+            
+            if not yara_detected and not manual_detected:
+                obfuscation_not_detected_by_either += 1
+            
+            if yara_detected and not manual_detected:
+                obfuscation_only_detected_by_yara_strict += 1
+            
+            if manual_detected and not yara_detected:
+                obfuscation_only_detected_by_manual_investigation += 1
     
     # Save main results
     output_data = {
@@ -1731,9 +3406,11 @@ def main():
             'successful_apkid_scans': successful_apkid,
             'successful_r8_scans': successful_r8,
             'successful_comprehensive_scans': successful_comprehensive,
-            'massive_obf_detected_by_apkid': massive_obf_detected_apkid,
-            'massive_obf_detected_by_manual_analysis': massive_obf_detected_manual,
-            'consistent_apkid_vs_manual_results': consistent_results
+            'obfuscation_detected_by_yara_strict': obfuscation_detected_by_yara_strict,
+            'obfuscation_detected_by_manual_investigation': obfuscation_detected_by_manual_investigation,
+            'obfuscation_not_detected_by_either': obfuscation_not_detected_by_either,
+            'obfuscation_only_detected_by_yara_strict': obfuscation_only_detected_by_yara_strict,
+            'obfuscation_only_detected_by_manual_investigation': obfuscation_only_detected_by_manual_investigation
         },
         'results': results
     }
@@ -1775,18 +3452,25 @@ def main():
             print(f"  Successful R8: {successful_r8}")
     if args.comprehensive or args.comprehensive_only:
         print(f"  Successful comprehensive: {successful_comprehensive}")
-        print(f"  Massive obfuscation detected (APKiD): {massive_obf_detected_apkid}")
-        print(f"  Massive obfuscation detected (manual): {massive_obf_detected_manual}")
-        print(f"  Consistent APKiD vs manual: {consistent_results}")
+        print(f"  Obfuscation detected by YARA Strict: {obfuscation_detected_by_yara_strict}")
+        print(f"  Obfuscation detected by Manual Investigation: {obfuscation_detected_by_manual_investigation}")
+        print(f"  Obfuscation not detected by either: {obfuscation_not_detected_by_either}")
+        print(f"  Obfuscation only detected by YARA Strict: {obfuscation_only_detected_by_yara_strict}")
+        print(f"  Obfuscation only detected by Manual Investigation: {obfuscation_only_detected_by_manual_investigation}")
         
         # Calculate percentage if we have comprehensive results
         if successful_comprehensive > 0:
-            detection_rate_apkid = (massive_obf_detected_apkid / successful_comprehensive) * 100
-            detection_rate_manual = (massive_obf_detected_manual / successful_comprehensive) * 100
-            consistency_rate = (consistent_results / successful_comprehensive) * 100
-            print(f"  Detection rate (APKiD): {detection_rate_apkid:.1f}%")
-            print(f"  Detection rate (manual): {detection_rate_manual:.1f}%")
-            print(f"  Consistency rate: {consistency_rate:.1f}%")
+            yara_detection_rate = (obfuscation_detected_by_yara_strict / successful_comprehensive) * 100
+            manual_detection_rate = (obfuscation_detected_by_manual_investigation / successful_comprehensive) * 100
+            no_detection_rate = (obfuscation_not_detected_by_either / successful_comprehensive) * 100
+            yara_only_rate = (obfuscation_only_detected_by_yara_strict / successful_comprehensive) * 100
+            manual_only_rate = (obfuscation_only_detected_by_manual_investigation / successful_comprehensive) * 100
+            
+            print(f"  YARA Strict detection rate: {yara_detection_rate:.1f}%")
+            print(f"  Manual Investigation detection rate: {manual_detection_rate:.1f}%")
+            print(f"  No detection rate: {no_detection_rate:.1f}%")
+            print(f"  YARA Strict only detection rate: {yara_only_rate:.1f}%")
+            print(f"  Manual Investigation only detection rate: {manual_only_rate:.1f}%")
 
 if __name__ == '__main__':
     main()

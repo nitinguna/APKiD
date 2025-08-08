@@ -1,0 +1,267 @@
+{
+  "packages": {
+    "com.symbol.csp.audiovoluimgr": {
+      "sdk_classes": [
+        {
+          "pattern": "ambda",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 11,
+        "non_discovered_sdk_classes": 1,
+        "sdk_patterns_found": 1
+      }
+    },
+    "com.zebra.csp.cellularmgr": {
+      "sdk_classes": [
+        {
+          "pattern": "ambda",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 17,
+        "non_discovered_sdk_classes": 1,
+        "sdk_patterns_found": 1
+      }
+    },
+    "com.zebra.dimensioning": {
+      "sdk_classes": [
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "com/airbnb/lottie/LottieDrawable$RepeatMode",
+          "class_count": 1
+        },
+        {
+          "pattern": "A41C5",
+          "class_count": 1
+        },
+        {
+          "pattern": "io",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 226,
+        "non_discovered_sdk_classes": 5,
+        "sdk_patterns_found": 5
+      }
+    },
+    "com.zebra.mobiledimensioning": {
+      "sdk_classes": [
+        {
+          "pattern": "7CDI",
+          "class_count": 1
+        },
+        {
+          "pattern": "Fu6s",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        },
+        {
+          "pattern": "9IOtDE",
+          "class_count": 1
+        },
+        {
+          "pattern": "WUZWSO",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 6,
+        "non_discovered_sdk_classes": 6,
+        "sdk_patterns_found": 6
+      }
+    },
+    "com.zebra.rfidreaderAPI.demo": {
+      "sdk_classes": [
+        {
+          "pattern": "vendor/zebra",
+          "class_count": 12
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 2122,
+        "non_discovered_sdk_classes": 20,
+        "sdk_patterns_found": 1
+      }
+    },
+    "com.zebra.showcaseapp": {
+      "sdk_classes": [
+        {
+          "pattern": "GKEHOF7I",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "NRE94",
+          "class_count": 1
+        },
+        {
+          "pattern": "FPge",
+          "class_count": 1
+        },
+        {
+          "pattern": "QOzGNKKu",
+          "class_count": 1
+        },
+        {
+          "pattern": "44AP8",
+          "class_count": 1
+        },
+        {
+          "pattern": "istener",
+          "class_count": 1
+        },
+        {
+          "pattern": "PuHHE",
+          "class_count": 1
+        },
+        {
+          "pattern": "istenerTypeT",
+          "class_count": 1
+        },
+        {
+          "pattern": "USLeAJHANNIOFO",
+          "class_count": 1
+        },
+        {
+          "pattern": "IW9Q",
+          "class_count": 1
+        },
+        {
+          "pattern": "libcore/io/Memory",
+          "class_count": 1
+        },
+        {
+          "pattern": "F4FImC18i1",
+          "class_count": 1
+        },
+        {
+          "pattern": "NQSUWIKOQSVXZLNPSV",
+          "class_count": 1
+        },
+        {
+          "pattern": "vEJHF",
+          "class_count": 1
+        },
+        {
+          "pattern": "NAHOz",
+          "class_count": 1
+        },
+        {
+          "pattern": "MIOA",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 208,
+        "non_discovered_sdk_classes": 18,
+        "sdk_patterns_found": 18
+      }
+    },
+    "com.symbol.mxmf.csp.enterprisekeyboard": {
+      "sdk_classes": [
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 2,
+        "non_discovered_sdk_classes": 2,
+        "sdk_patterns_found": 2
+      }
+    },
+    "com.zebra.smartmu.app": {
+      "sdk_classes": [
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "ifecycleBoundObserver",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 1508,
+        "non_discovered_sdk_classes": 3,
+        "sdk_patterns_found": 3
+      }
+    },
+    "com.symbol.swcomponents": {
+      "sdk_classes": [
+        {
+          "pattern": "oadContentObserver",
+          "class_count": 1
+        },
+        {
+          "pattern": "oadTask",
+          "class_count": 1
+        },
+        {
+          "pattern": "ifecycleBoundObserver",
+          "class_count": 1
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 418,
+        "non_discovered_sdk_classes": 3,
+        "sdk_patterns_found": 3
+      }
+    },
+    "com.zebra.cellbroadcast": {
+      "sdk_classes": [
+        {
+          "pattern": "com/airbnb",
+          "class_count": 251
+        },
+        {
+          "pattern": "okio/internal",
+          "class_count": 3
+        }
+      ],
+      "debug": {
+        "total_logical_classes": 291,
+        "non_discovered_sdk_classes": 278,
+        "sdk_patterns_found": 2
+      }
+    }
+  },
+  "debug_info": {
+    "total_packages_analyzed": 10,
+    "total_sdk_patterns": 42,
+    "analysis_timestamp": "2025-08-03 18:06:21"
+  }
+}

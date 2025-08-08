@@ -447,6 +447,7 @@ def filter_zebra_symbol_classes(logical_classes):
     zebra_symbol_patterns = [
         r'^Lcom/zebra/',
         r'^Lcom/symbol/',
+        r'^Lvendor/zebra/',
         r'^Lcom/motorolasolutions/'  # Also include Motorola Solutions (parent company)
     ]
     
