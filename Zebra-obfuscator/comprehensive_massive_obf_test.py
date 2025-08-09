@@ -1560,7 +1560,7 @@ def analyze_single_dex_detailed(dex_file_path, sdk_config=None, total_dex_count=
         percentage = (conditions_passed / total_conditions) * 100
         safe_print(f"\n🎯 Manual Analysis Completion: {percentage:.1f}% ({conditions_passed}/{total_conditions})")
         return percentage, False, {}, {}
-def load_obfuscation_rules_config(config_path="obfuscation_rules_config.json"):
+def load_obfuscation_rules_config(config_path="configurations/obfuscation_rules_config.json"):
     """Load obfuscation detection rules from JSON configuration file."""
     try:
         if not os.path.exists(config_path):
@@ -1878,7 +1878,7 @@ def evaluate_rule_against_patterns(rule, patterns, logical_classes, analysis_met
     
     return results
 
-def load_obfuscation_rules_config(config_path="obfuscation_rules_config.json"):
+def load_obfuscation_rules_config(config_path="configurations/obfuscation_rules_config.json"):
     """Load obfuscation detection rules from JSON configuration file."""
     try:
         if not os.path.exists(config_path):

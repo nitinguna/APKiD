@@ -688,14 +688,14 @@ def main():
         epilog="""
 Examples:
   python zebra_sdk_discovery.py /path/to/apks
-  python zebra_sdk_discovery.py /path/to/apks --output zebra_sdk_config.json
+  python zebra_sdk_discovery.py /path/to/apks --output configurations/zebra_sdk_config.json
   python zebra_sdk_discovery.py /path/to/apks --min-classes 5 --max-patterns 20
         """
     )
     
     parser.add_argument('folder', help='Folder to scan recursively for APK files')
-    parser.add_argument('--output', default='discovered_zebra_sdk_config.json', 
-                       help='Output JSON configuration file (default: discovered_zebra_sdk_config.json)')
+    parser.add_argument('--output', default='configurations/discovered_zebra_sdk_config.json', 
+                       help='Output JSON configuration file (default: configurations/discovered_zebra_sdk_config.json)')
     parser.add_argument('--min-classes', type=int, default=3,
                        help='Minimum classes required to identify a SDK pattern (default: 3)')
     parser.add_argument('--max-patterns', type=int, default=50,

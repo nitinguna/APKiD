@@ -7,6 +7,7 @@ import json
 import csv
 import os
 from typing import Dict, Any, List
+from path_config import get_results_path, get_csv_results_path
 
 def extract_csv_columns(apk_result: Dict[str, Any]) -> Dict[str, str]:
     """
@@ -224,14 +225,14 @@ def main():
     """
     Main function to export results to CSV
     """
-    # File paths
-    input_json = "quick_analysis_results.json"
-    output_csv = "apk_analysis_results.csv"
+    # File paths using path_config
+    input_json = os.path.join(get_results_path(), "quick_analysis_results.json")
+    output_csv = get_csv_results_path()
     
     # Check if JSON file exists
     if not os.path.exists(input_json):
         print(f"❌ Input file not found: {input_json}")
-        print("Please ensure quick_analysis_results.json exists in the current directory")
+        print("Please ensure quick_analysis_results.json exists in the results/ directory")
         return
     
     # Export to CSV

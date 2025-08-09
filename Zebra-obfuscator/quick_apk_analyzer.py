@@ -15,6 +15,7 @@ import re
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from export_to_csv import export_results_to_csv
 
 # Set environment variables for better unicode handling on Windows
 if sys.platform == "win32":
@@ -1980,7 +1981,7 @@ def create_comprehensive_final_summary(result_data):
     
     # Load rule configuration for parameter-based margin calculation
     rule_config = None
-    config_path = os.path.join(os.path.dirname(__file__), 'obfuscation_rules_config.json')
+    config_path = os.path.join(os.path.dirname(__file__), 'configurations', 'obfuscation_rules_config.json')
     try:
         with open(config_path, 'r') as f:
             rule_config = json.load(f)
@@ -3100,7 +3101,7 @@ def main():
     parser = argparse.ArgumentParser(description='Quick APK Analysis with optional comprehensive obfuscation testing')
     parser.add_argument('directory', help='Directory to search for APK files')
     parser.add_argument('--r8-jar', default='r8.jar', help='Path to R8 JAR file (optional)')
-    parser.add_argument('--output', default='quick_analysis_results.json', help='Output JSON file')
+    parser.add_argument('--output', default='results/quick_analysis_results.json', help='Output JSON file')
     parser.add_argument('--max-apks', type=int, default=None, help='Maximum number of APKs to analyze (default: analyze all APKs found)')
     parser.add_argument('--comprehensive', action='store_true', help='Include comprehensive massive obfuscation analysis (slower but detailed)')
     parser.add_argument('--comprehensive-only', action='store_true', help='Run only comprehensive obfuscation analysis (skip APKiD and R8)')
@@ -3419,6 +3420,19 @@ def main():
         with open(args.output, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         print(f"\nMain results saved to: {args.output}")
+        
+        # Export results to CSV
+        try:
+            # Generate CSV output path based on JSON output path
+            csv_output_path = args.output.replace('.json', '.csv')
+            if csv_output_path == args.output:  # If no .json extension found
+                csv_output_path = args.output + '.csv'
+            
+            print(f"\n📊 Exporting results to CSV...")
+            export_results_to_csv(args.output, csv_output_path)
+            print(f"✅ CSV export completed: {csv_output_path}")
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to export to CSV: {e}")
     except Exception as e:
         print(f"Error saving main results: {e}")
     

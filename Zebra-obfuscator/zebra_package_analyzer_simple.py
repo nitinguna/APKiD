@@ -7,7 +7,7 @@ analyzes their DEX files to detect Zebra/Symbol applications,
 and extracts common package usage patterns.
 
 Usage:
-    python zebra_package_analyzer_simple.py <directory_path> [--output report.json] [--verbose]
+    python zebra_package_analyzer_simple.py <directory_path> [--output results/report.json] [--verbose]
 
 Features:
     - No external dependencies (aapt not required)
@@ -619,7 +619,7 @@ def main():
         epilog="""
 Examples:
     python zebra_package_analyzer_simple.py /path/to/apk/folder
-    python zebra_package_analyzer_simple.py /path/to/apk/folder --output report.json --verbose
+    python zebra_package_analyzer_simple.py /path/to/apk/folder --output results/report.json --verbose
     python zebra_package_analyzer_simple.py . --verbose
 
 Note: This script analyzes only APKs with com.zebra.* or com.symbol.* package names.
